@@ -9,14 +9,19 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.salyvn.serverdoctor.config.ConfigAudit
 import com.salyvn.serverdoctor.config.ServerConfigSet
 import com.salyvn.serverdoctor.core.ScanReport
+import com.salyvn.serverdoctor.crash.CrashAudit
+import com.salyvn.serverdoctor.crash.CrashReportFile
 import com.salyvn.serverdoctor.flags.FlagsAudit
 import com.salyvn.serverdoctor.flags.JvmCommandLine
 import com.salyvn.serverdoctor.flags.StartScriptReader
 import com.salyvn.serverdoctor.input.LogSource
 import com.salyvn.serverdoctor.log.LogTriage
+import com.salyvn.serverdoctor.perms.PermsAudit
 import com.salyvn.serverdoctor.plugins.ModrinthClient
 import com.salyvn.serverdoctor.plugins.PluginIndex
 import com.salyvn.serverdoctor.plugins.PluginsAudit
+import com.salyvn.serverdoctor.world.WorldAudit
+import com.salyvn.serverdoctor.world.WorldFolder
 import java.nio.file.Files
 import java.nio.file.Path
 
@@ -24,16 +29,18 @@ import java.nio.file.Path
  * `serverdoctor scan <server-dir>` — every audit that applies to one directory, in one pass.
  *
  * This is the command for the situation the tool was written for: something is wrong, the operator has
- * the server folder, and nobody yet knows whether the cause is in the log, the config, the flags or
- * the plugins. Running the four separately means deciding in advance which one to suspect.
+ * the server folder, and nobody yet knows whether the cause is in the log, the config, the flags, the
+ * plugins, the worlds, a crash report or the access lists. Running them separately means deciding in
+ * advance which one to suspect.
  *
- * The plugins index is read once and handed to both the plugins audit and the log triage, so stack
- * frames in the log can be attributed to jars that are really installed.
+ * The plugins index is read once and handed to the plugins audit, the log triage and the crash audit,
+ * so stack frames anywhere can be attributed to jars that are really installed.
  */
 class ScanCommand : ReportCommand("scan") {
 
     override fun help(context: Context) =
-        "Run every applicable audit over one server directory: log, config, flags and plugins."
+        "Run every applicable audit over one server directory: log, config, flags, plugins, worlds, " +
+            "crash reports and access lists."
 
     private val target by argument(
         name = "server-dir",
@@ -71,6 +78,16 @@ class ScanCommand : ReportCommand("scan") {
 
         latestLog(target)?.let { log ->
             reports += LogTriage(index).analyse(LogSource.of(log))
+        }
+
+        val worlds = WorldFolder.discover(target)
+        if (worlds.isNotEmpty()) reports += WorldAudit().analyse(worlds, target.toString())
+
+        val crashes = CrashReportFile.discover(target).map { CrashReportFile.read(it) }
+        if (crashes.isNotEmpty()) reports += CrashAudit(index).analyse(crashes, target.toString())
+
+        if (Files.isRegularFile(target.resolve("server.properties"))) {
+            reports += PermsAudit().analyse(target, target.toString())
         }
 
         if (reports.isEmpty()) {

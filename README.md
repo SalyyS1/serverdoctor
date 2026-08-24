@@ -3,8 +3,9 @@
 [![build](https://github.com/SalyyS1/serverdoctor/actions/workflows/build.yml/badge.svg)](https://github.com/SalyyS1/serverdoctor/actions/workflows/build.yml)
 
 Diagnostics for a Minecraft server, read from the artifacts it has already produced: its log, its
-configuration files, its start script and the jars in its plugins directory. It does not start a
-server, connect to one, or load a line of plugin code.
+configuration files, its start script, the jars in its plugins directory, its worlds, its crash
+reports and its access lists. It does not start a server, connect to one, or load a line of plugin
+code, and it writes nothing except the report you ask for.
 
 That constraint is the point. The moment you need a diagnosis is the moment the server is down, the
 host has handed you a folder and a log, and nothing can be reproduced. Everything here works on that
@@ -17,6 +18,10 @@ folder, offline, on the same box that produced it.
 | `config` | Is this server exposed or misconfigured — judged across `server.properties`, `bukkit.yml`, `spigot.yml` and the Paper configs together, not one file at a time? |
 | `flags` | Do the JVM flags in the start script do what whoever wrote them thought? |
 | `plugins` | What is installed, what is broken about the set, and where did each jar come from? |
+| `world` | Is every world intact, and were they all last saved by the same game version? |
+| `crash` | What did the crash report actually say, whose code was in the trace, and what did the server run with? |
+| `perms` | Who can get in, who is an operator, and does the server verify that anyone is who they claim? |
+| `diff` | What is different between two servers that are supposed to be the same? |
 
 There is also an `mcp` mode that serves the same audits to an AI coding agent over the Model Context
 Protocol, so "why did this server crash" becomes something the agent answers from the log instead of
@@ -43,6 +48,19 @@ Each audit exists because the server does not tell you the thing you need to kno
   silently.
 - **`folia-supported: true` is a claim, not a check.** It is the only thing Folia tests at load, and
   it is written by the plugin's author.
+- **A world that nobody has entered since the upgrade is still on the old version.** Each world
+  records the game version that last wrote it, and nothing on a running server points out that two of
+  its worlds disagree — the conversion happens the moment somebody walks in.
+- **A crash report outlives the server that wrote it.** It carries the game version, the memory
+  figures and the full `JVM Flags:` line, so a file mailed by a host is enough to audit the flags of a
+  machine you will never see. Five reports with one description is a loop, and no single report says
+  so.
+- **Offline mode and an operator list are only dangerous together.** With nothing verifying identity,
+  a player is whoever they say they are, and `ops.json` is keyed on exactly that. Behind a proxy that
+  forwards identity the same two files are correct, so this is only reported when nothing forwards.
+- **"They are configured the same" is usually false.** Two nodes of a network drift by one key, one
+  plugin version, or one jar that claims a version and is not the same bytes. `diff` prints the list
+  and takes no side about which box is the good one.
 
 Every rule states one fact and records where that fact came from — a file and line in Paper or Folia,
 a JEP, an API response. `serverdoctor rules` prints the catalogue with those sources, so a finding can
@@ -84,6 +102,18 @@ java -jar serverdoctor.jar flags --command "java -Xms2G -Xmx8G -XX:+UseG1GC -jar
 # What is installed, and what a public index says each file is
 java -jar serverdoctor.jar plugins /srv/mc/plugins --online
 
+# The worlds: level.dat, region files, datapacks, and whether the versions agree
+java -jar serverdoctor.jar world /srv/mc
+
+# A crash report somebody sent you, with its own flags audited from the file
+java -jar serverdoctor.jar crash crash-2026-08-24_11.04.12-server.txt
+
+# Operators, whitelist, bans and permissions.yml, judged against how identity is verified
+java -jar serverdoctor.jar perms /srv/mc
+
+# Two servers that are supposed to be the same
+java -jar serverdoctor.jar diff /srv/staging /srv/production
+
 # Every rule, with its rationale and its source
 java -jar serverdoctor.jar rules --area log
 ```
@@ -93,7 +123,7 @@ Output is plain text by default, `--format json` for a machine, `-o file` to wri
 
 ## What the output looks like
 
-Both samples are real output, captured from the deliberately broken fixtures in
+All three samples are real output, captured from the deliberately broken fixtures in
 `src/test/resources`, which is also what CI runs against.
 
 Triage of a log where a plugin blocks the main thread on MySQL until the watchdog kills the server:
@@ -194,28 +224,101 @@ Velocity forwarding is configured, and that combination is correct for a backend
 offline mode fires only when nothing in front of the server is authenticating players — which is the
 false positive this audit exists to avoid.
 
+One crash report, read from a file with no server attached to it. The report carries the flags the
+server was started with, so the run prints a second report from the same file:
+
+```
+$ java -jar serverdoctor.jar crash crash-2026-08-24_11.04.12-server.txt
+
+crash: crash-2026-08-24_11.04.12-server.txt
+  crash reports   1
+  crashed at      2026-08-24 11:04:12
+  minecraft       1.21.4
+  server brand    Paper
+  java            21.0.5, Eclipse Adoptium
+  memory          1476395008 bytes (1408 MiB) / 3221225472 bytes (3072 MiB) up to 3221225472 bytes (3072 MiB)
+  plugins listed  3
+  jvm flags       read from crash-2026-08-24_11.04.12-server.txt
+
+[critical] X001  The server crashed
+    crash-2026-08-24_11.04.12-server.txt
+      Ticking entity, at 2026-08-24 11:04:12. The trace starts in com.example.spawner.SpawnerListener.follow.
+        java.lang.NullPointerException: Cannot invoke "org.bukkit.entity.Player.getLocation()" because "target" is null
+        at com.example.spawner.SpawnerListener.follow(SpawnerListener.java:118)
+        at com.example.spawner.SpawnerTask.tick(SpawnerTask.java:42)
+        at net.minecraft.world.entity.Mob.customServerAiStep(Mob.java:322)
+    fix: Work from the frame this names rather than from the last console line before the stop.
+
+[critical] X002  A plugin's code is in the crash trace
+    crash-2026-08-24_11.04.12-server.txt
+      The outermost frame that is not server, JDK or Netty code belongs to com.example.spawner.
+        at com.example.spawner.SpawnerListener.follow(SpawnerListener.java:118)
+    fix: Reproduce with that plugin removed. If the crash stops, report it upstream with this file.
+
+[warning] X004  The crash happened while ticking one specific object
+    crash-2026-08-24_11.04.12-server.txt
+      The report says the server was ticking one object: Entity being ticked.
+        Entity Type: minecraft:zombie (net.minecraft.world.entity.monster.Zombie)
+        Entity's Exact location: -184.50, 63.00, 1042.31
+    fix: Note the coordinates from the section below and remove or repair that object before the chunk is loaded again.
+
+Summary: 2 criticals, 1 warning
+
+------------------------------------------------------------------------
+flags: crash-2026-08-24_11.04.12-server.txt (JVM Flags)
+  heap       -Xms 1.0 GiB, -Xmx 3.0 GiB
+  collector  -XX:+UseConcMarkSweepGC
+  -XX flags  1
+
+[critical] F003  The watchdog is switched off
+    crash-2026-08-24_11.04.12-server.txt (JVM Flags)
+      -Ddisable.watchdog is set, so Paper will not dump threads or stop a hung server.
+    fix: Remove -Ddisable.watchdog and fix the hang it was hiding.
+
+[warning] F006  Flags for a collector that no longer exists
+    crash-2026-08-24_11.04.12-server.txt (JVM Flags)
+      CMS-era flags present: UseConcMarkSweepGC.
+    fix: Delete them and use the documented G1 set instead.
+
+    [two more findings omitted here: -Xms differs from -Xmx, and the heap is under Paper's
+     documented floor]
+
+Summary: 1 critical, 3 warnings
+```
+
+Run the same command against `crash-reports/` and a fourth finding appears that no single file
+contains: the same description written twice, half an hour apart, which is a restart loop rather than
+an accident.
+
 ## What it does not do
 
 Stated plainly, because a tool that reports nothing looks the same as a tool that found nothing.
 
-- It does not read your world. No region files, no player data, no NBT.
+- It reads `level.dat` and the size of each region file. It does not decode chunks, entities, blocks or
+  player data, so it can tell you a region file is empty and never what is inside a full one.
+- It writes nothing. Every audit opens files read-only, and the only file it creates is the report you
+  ask for with `-o`.
 - It does not open a network connection unless you pass `--online`, and then only to look plugin jars
   up by their hash.
 - It does not judge tuning by taste. There is no rule saying your view distance is wrong, because the
   hardware it has to be right for is not in the folder.
 - It cannot verify a self-declaration. `folia-supported`, `api-version`, a plugin's own version — all
   of it is what the author wrote. Only the file hash identifies a build.
-- Log attribution is best effort and says which method it used. A shaded or relocated plugin can put
-  a library's package in the frame you would otherwise blame, and the bracketed name in a log line is
-  the descriptor's `prefix:` when one is set, which need not resemble the plugin's name.
+- Log and crash attribution is best effort and says which method it used. A shaded or relocated plugin
+  can put a library's package in the frame you would otherwise blame, and the bracketed name in a log
+  line is the descriptor's `prefix:` when one is set, which need not resemble the plugin's name.
+- `diff` takes no side. It reports that two servers differ, never which one is right.
+- It does not read a timings or spark report. Tick-time analysis is a different problem and is not
+  pretended at here.
 - `plugins --online` matching nothing is not a safety finding. Paid plugins, private builds and
   pruned releases all fail to match for ordinary reasons.
 
 ## With an AI agent
 
 `serverdoctor mcp` speaks the Model Context Protocol over stdio, exposing `triage_log`,
-`audit_config`, `audit_jvm_flags`, `audit_plugins` and `list_rules`. All five are read-only and return
-the JSON report. For a client that reads the usual config file:
+`audit_config`, `audit_jvm_flags`, `audit_plugins`, `audit_worlds`, `read_crash_reports`,
+`audit_access_lists`, `diff_servers` and `list_rules`. All nine are read-only and return the JSON
+report. For a client that reads the usual config file:
 
 ```json
 {
@@ -244,9 +347,9 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-Fifty-six rules across the four audits. Every `source:` line names a file and line in Paper or Folia,
-a JEP, or an API response that was checked, and the whole catalogue is in
-[`docs/rules.md`](docs/rules.md).
+Eighty-seven rules across the eight audits. Every `source:` line names a file and line in Paper or
+Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
+whole catalogue is in [`docs/rules.md`](docs/rules.md).
 
 ## Building
 

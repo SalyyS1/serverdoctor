@@ -56,7 +56,12 @@ data class StackFrame(val raw: String, val className: String, val method: String
     val packageName: String get() = className.substringBeforeLast('.', "")
 
     companion object {
-        private val FRAME = Regex("""^\s*at\s+([\w$.]+)\.([\w$<>]+)\(([^)]*)\)""")
+        /**
+         * `at com.example.Foo.bar(Foo.java:12)`, and the same line with the module or class-loader
+         * prefix a modern JVM writes: `java.base/java.util.Arrays.copyOf(...)`, `app//com.example.Foo`.
+         * The prefix is skipped rather than kept, so a JDK frame is still recognised as one.
+         */
+        private val FRAME = Regex("""^\s*at\s+(?:[\w.$@-]*/)*([\w$.]+)\.([\w$<>]+)\(([^)]*)\)""")
 
         fun parse(line: String): StackFrame? {
             val match = FRAME.find(line) ?: return null

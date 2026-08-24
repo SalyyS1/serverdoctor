@@ -1,0 +1,8 @@
+# Fixture for serverdoctor tests: deliberately not valid YAML.
+# The flow sequence below is never closed, so the server logs one warning and
+# ignores this entire file.
+example.admin:
+  default: op
+  children: [example.kick: true, example.ban: true
+example.moderator:
+  default: false

@@ -1,0 +1,26 @@
+[
+  {
+    "uuid": "4d1a2f60-9b3c-4e5a-8f21-0c7b6d5e4a31",
+    "name": "Ari",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "",
+    "name": "Bo",
+    "level": 4,
+    "bypassesPlayerLimit": false
+  },
+  {
+    "uuid": "8c5e7b12-0d44-4a9e-b6f3-2a1c9d8e7f60",
+    "name": "Cyd",
+    "level": 4,
+    "bypassesPlayerLimit": true
+  },
+  {
+    "uuid": "f0e9d8c7-b6a5-4321-9876-543210fedcba",
+    "name": "Ari",
+    "level": 2,
+    "bypassesPlayerLimit": false
+  }
+]

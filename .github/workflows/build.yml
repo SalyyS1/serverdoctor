@@ -39,9 +39,20 @@ jobs:
           java -jar "$CLI" config src/test/resources/server --no-color --fail-on never
           java -jar "$CLI" flags src/test/resources/server --host-memory 16G --no-color --fail-on never
           java -jar "$CLI" plugins build/libs --no-color --fail-on never
+          java -jar "$CLI" crash src/test/resources/crash-reports --no-color --fail-on never
+          java -jar "$CLI" perms src/test/resources/access --no-color --fail-on never
+          java -jar "$CLI" diff src/test/resources/server src/test/resources/access --no-color --fail-on never
+          # The world audit needs a world, and the fixtures build theirs in the tests. Pointing it at a
+          # directory with none has to be an argument error, not a crash and not a clean bill of health.
+          ! java -jar "$CLI" world src/test/resources/server --no-color
           # A broken log must exit non-zero when asked to fail on critical findings, or CI use is
           # pointless. `!` keeps the pipeline going while asserting the failure.
           ! java -jar "$CLI" log src/test/resources/logs/broken-paper-server.log --no-color --fail-on critical
+          # The same for a crash report: three reports, one of them a loop, is a non-zero exit.
+          ! java -jar "$CLI" crash src/test/resources/crash-reports --no-color --fail-on critical
+          # docs/rules.md is generated from the rule objects, so it must not drift from the jar.
+          java -jar "$CLI" rules --markdown -o /tmp/rules.md
+          diff -u docs/rules.md /tmp/rules.md
           # The MCP server has to answer a handshake on stdio and exit on EOF.
           printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}' \
             | java -jar "$CLI" mcp | grep -q '"protocolVersion"'

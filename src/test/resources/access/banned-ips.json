@@ -1,0 +1,9 @@
+[
+  {
+    "ip": "203.0.113.7",
+    "created": "2026-08-19 08:02:55 +0000",
+    "source": "Ari",
+    "expires": "forever",
+    "reason": "bot connections"
+  }
+]

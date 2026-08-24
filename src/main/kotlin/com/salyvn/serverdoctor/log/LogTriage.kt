@@ -197,25 +197,10 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
             for (frame in frames) {
                 plugins.owningPlugin(frame.className)?.let { return it.descriptor?.name ?: it.fileName }
             }
-            return frames.firstOrNull { frame -> SERVER_PACKAGES.none { frame.className.startsWith(it) } }
+            return ServerPackages.firstForeignFrame(frames)
                 ?.packageName
                 ?.takeIf { it.isNotEmpty() }
         }
-
-        private val SERVER_PACKAGES = listOf(
-            "net.minecraft.",
-            "org.bukkit.",
-            "io.papermc.",
-            "com.destroystokyo.",
-            "org.spigotmc.",
-            "ca.spottedleaf.",
-            "java.",
-            "javax.",
-            "sun.",
-            "jdk.",
-            "kotlin.",
-            "io.netty.",
-        )
 
         private val DETECTORS: List<LogDetector> = LogDetectors.all
     }

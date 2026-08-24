@@ -6,12 +6,16 @@ import com.github.ajalt.clikt.core.main
 import com.github.ajalt.clikt.core.subcommands
 import com.github.ajalt.clikt.parameters.options.versionOption
 import com.salyvn.serverdoctor.cli.ConfigCommand
+import com.salyvn.serverdoctor.cli.CrashCommand
+import com.salyvn.serverdoctor.cli.DiffCommand
 import com.salyvn.serverdoctor.cli.FlagsCommand
 import com.salyvn.serverdoctor.cli.LogCommand
 import com.salyvn.serverdoctor.cli.McpCommand
+import com.salyvn.serverdoctor.cli.PermsCommand
 import com.salyvn.serverdoctor.cli.PluginsCommand
 import com.salyvn.serverdoctor.cli.RulesCommand
 import com.salyvn.serverdoctor.cli.ScanCommand
+import com.salyvn.serverdoctor.cli.WorldCommand
 import com.salyvn.serverdoctor.core.BuildInfo
 
 /**
@@ -38,6 +42,10 @@ fun main(args: Array<String>) = ServerDoctorCommand()
         ConfigCommand(),
         FlagsCommand(),
         PluginsCommand(),
+        WorldCommand(),
+        CrashCommand(),
+        PermsCommand(),
+        DiffCommand(),
         McpCommand(),
         RulesCommand(),
     )

@@ -1,0 +1,65 @@
+---- Minecraft Crash Report ----
+// I let you down. Sorry :(
+
+Time: 2026-08-24 11:04:12
+Description: Ticking entity
+
+java.lang.NullPointerException: Cannot invoke "org.bukkit.entity.Player.getLocation()" because "target" is null
+	at com.example.spawner.SpawnerListener.follow(SpawnerListener.java:118)
+	at com.example.spawner.SpawnerTask.tick(SpawnerTask.java:42)
+	at net.minecraft.world.entity.Mob.customServerAiStep(Mob.java:322)
+	at net.minecraft.world.entity.LivingEntity.aiStep(LivingEntity.java:2688)
+	at net.minecraft.server.level.ServerLevel.tickNonPassenger(ServerLevel.java:829)
+	at net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:611)
+	at net.minecraft.server.MinecraftServer.tickChildren(MinecraftServer.java:1704)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1522)
+	at net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:1231)
+	at net.minecraft.server.MinecraftServer.lambda$spin$0(MinecraftServer.java:322)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Server thread
+Stacktrace:
+	at com.example.spawner.SpawnerListener.follow(SpawnerListener.java:118)
+	at com.example.spawner.SpawnerTask.tick(SpawnerTask.java:42)
+
+-- Entity being ticked --
+Details:
+	Entity Type: minecraft:zombie (net.minecraft.world.entity.monster.Zombie)
+	Entity ID: 4213
+	Entity Name: Zombie
+	Entity's Exact location: -184.50, 63.00, 1042.31
+	Entity's Block location: World: (-185,63,1042), Section: (at 7,15,2 in -12,3,65)
+	Entity's Momentum: 0.00, -0.08, 0.00
+Stacktrace:
+	at net.minecraft.server.level.ServerLevel.tickNonPassenger(ServerLevel.java:829)
+	at net.minecraft.server.level.ServerLevel.tick(ServerLevel.java:611)
+
+-- Affected level --
+Details:
+	All players: 3 total; [CraftPlayer{name=Ari}, CraftPlayer{name=Bo}, CraftPlayer{name=Cyd}]
+	Chunk stats: 4096
+	Level dimension: minecraft:overworld
+	Level name: world
+	Level spawn location: World: (0,64,0)
+	Level time: 284471 game time, 118844 day time
+
+-- System Details --
+Details:
+	Minecraft Version: 1.21.4
+	Minecraft Version ID: 1.21.4
+	Operating System: Linux (amd64) version 6.1.0-18-amd64
+	Java Version: 21.0.5, Eclipse Adoptium
+	Java VM Version: OpenJDK 64-Bit Server VM (mixed mode, sharing), Eclipse Adoptium
+	Memory: 1476395008 bytes (1408 MiB) / 3221225472 bytes (3072 MiB) up to 3221225472 bytes (3072 MiB)
+	CPUs: 4
+	JVM Flags: 4 total; -Xms1G -Xmx3G -XX:+UseConcMarkSweepGC -Ddisable.watchdog=true
+	Server Brand: Paper
+	Server Type: Non-Integrated Multiplayer Server
+	Is Modded: Definitely; Server brand changed to 'Paper'
+	Player Count: 3 / 60; [ServerPlayer['Ari'], ServerPlayer['Bo'], ServerPlayer['Cyd']]
+	Data Packs: vanilla, file/broken-pack
+	Plugins: ExampleSpawner, Vault, LuckPerms

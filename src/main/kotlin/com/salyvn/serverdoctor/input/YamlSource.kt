@@ -102,10 +102,18 @@ class YamlSource(
                 YamlSource(label, entries, duplicates)
             } catch (failure: Exception) {
                 // SnakeYAML's message names the line and the construct, which is more useful to the
-                // reader than anything this tool would add.
-                YamlSource(label, emptyList(), emptyList(), failure.message ?: failure.toString())
+                // reader than anything this tool would add. It arrives as several lines with a caret
+                // diagram, and a finding is one line, so it is folded rather than trimmed.
+                YamlSource(label, emptyList(), emptyList(), oneLine(failure.message ?: failure.toString()))
             }
         }
+
+        /** SnakeYAML points at the column with a line of carets, which carries nothing on its own. */
+        private fun oneLine(message: String): String = message
+            .lineSequence()
+            .map { it.trim() }
+            .filter { line -> line.isNotEmpty() && line.any { it != '^' } }
+            .joinToString("; ")
 
         private fun walk(
             node: Node,

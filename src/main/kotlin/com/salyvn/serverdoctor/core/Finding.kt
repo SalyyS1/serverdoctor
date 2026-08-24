@@ -33,6 +33,10 @@ enum class RuleArea(val label: String) {
     CONFIG("config"),
     FLAGS("flags"),
     PLUGINS("plugins"),
+    WORLD("world"),
+    CRASH("crash"),
+    PERMS("perms"),
+    DIFF("diff"),
 }
 
 /**

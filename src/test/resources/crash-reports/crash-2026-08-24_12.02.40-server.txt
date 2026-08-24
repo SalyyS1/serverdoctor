@@ -1,0 +1,39 @@
+---- Minecraft Crash Report ----
+// Oops.
+
+Time: 2026-08-24 12:02:40
+Description: Exception in server tick loop
+
+java.lang.OutOfMemoryError: Java heap space
+	at java.base/java.util.Arrays.copyOf(Arrays.java:3541)
+	at java.base/java.util.ArrayList.grow(ArrayList.java:237)
+	at com.example.spawner.SpawnerRegistry.remember(SpawnerRegistry.java:64)
+	at net.minecraft.server.level.ServerLevel.addFreshEntity(ServerLevel.java:1402)
+	at net.minecraft.server.MinecraftServer.tickServer(MinecraftServer.java:1522)
+	at net.minecraft.server.MinecraftServer.runServer(MinecraftServer.java:1231)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+
+A detailed walkthrough of the error, its code path and all known details is as follows:
+---------------------------------------------------------------------------------------
+
+-- Head --
+Thread: Server thread
+Stacktrace:
+	at java.base/java.util.Arrays.copyOf(Arrays.java:3541)
+	at com.example.spawner.SpawnerRegistry.remember(SpawnerRegistry.java:64)
+
+-- System Details --
+Details:
+	Minecraft Version: 1.21.4
+	Minecraft Version ID: 1.21.4
+	Operating System: Linux (amd64) version 6.1.0-18-amd64
+	Java Version: 21.0.5, Eclipse Adoptium
+	Java VM Version: OpenJDK 64-Bit Server VM (mixed mode, sharing), Eclipse Adoptium
+	Memory: 1071644672 bytes (1022 MiB) / 1073741824 bytes (1024 MiB) up to 1073741824 bytes (1024 MiB)
+	CPUs: 4
+	JVM Flags: 2 total; -Xms1G -Xmx1G
+	Server Brand: Paper
+	Server Type: Non-Integrated Multiplayer Server
+	Is Modded: Definitely; Server brand changed to 'Paper'
+	Player Count: 41 / 60; [ServerPlayer['Ari'], ServerPlayer['Bo']]
+	Plugins: ExampleSpawner, Vault, LuckPerms

@@ -57,6 +57,34 @@ read on 2026-08-24 from the default branch of each repository.
     .java for the spigot.yml keys. No default is quoted from a tuning guide,
     because a guide can be a version behind and a field cannot.
 
+  Worlds on disk
+    Read from PaperMC/Paper: WorldFolderMigration.java, for the Data compound that
+    carries the level data and for the two historic layouts the server migrates
+    between (the CraftBukkit sibling folders and the vanilla DIM-1 / DIM1). The
+    structural facts — a folder with region data and no level.dat, a zero-byte
+    .mca, a datapack folder without pack.mcmeta — are read from the directory
+    itself and the rules say so rather than citing behaviour that could not be
+    sourced. The NBT reader is written from the format itself and produces only
+    maps, lists and primitives.
+
+  Identity, operators and permissions
+    Read from PaperMC/Paper CraftServer.java: getOfflinePlayer, where an account's
+    real id is only looked up when online mode is on and is otherwise created from
+    the name that was typed, and loadCustomPermissions, where the permissions file
+    is named by bukkit.yml settings.permissions-file, a missing file returns
+    silently, and YAML that does not parse is logged once and the whole file
+    skipped. The access lists themselves are read as the JSON the server writes.
+    enforce-whitelist is printed as a fact and has no rule, because its behaviour
+    lives in code that is not in Paper's repository and could not be verified.
+
+  Crash reports
+    The layout was taken from real reports rather than from documentation: the
+    banner, Time and Description, the trace, then `-- Name --` sections whose
+    bodies are tab-indented `Key: value` lines. `-- System Details --` carries the
+    Minecraft and Java versions, the memory figures and the `JVM Flags: N total;`
+    line the flags audit is then run over. Nothing is inferred from a trace beyond
+    naming the first frame that belongs to neither the server, the JDK nor Netty.
+
   JVM flags
     The recommended set and the reasoning behind matching -Xms to -Xmx come from
     PaperMC/docs (BSD-2-Clause), paper/admin/how-to/aikars-flags.md. The removal
