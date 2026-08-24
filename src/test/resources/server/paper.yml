@@ -1,0 +1,4 @@
+# Fixture: a pre-split paper.yml left behind in the server root. Modern Paper does not read it.
+verbose: false
+settings:
+  save-empty-scoreboard-teams: true

@@ -1,0 +1,21 @@
+.gradle/
+build/
+out/
+*.class
+
+# Server logs picked up while testing locally. Test fixtures under src/test/resources are
+# deliberate and must stay tracked.
+*.log
+*.log.gz
+!src/test/resources/**/*.log
+!src/test/resources/**/*.log.gz
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Local run artifacts
+serverdoctor-report.json
+/samples/
+/cache/

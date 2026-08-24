@@ -1,0 +1,153 @@
+serverdoctor
+Copyright 2026 SalyVn (https://github.com/SalyyS1)
+
+Licensed under the Apache License, Version 2.0. See the LICENSE file.
+
+================================================================================
+Third-party dependencies bundled in the shaded release jar
+================================================================================
+
+Licences below were read from each artifact's published POM on Maven Central.
+
+  SnakeYAML 2.6                           Apache-2.0
+  org.yaml:snakeyaml                      https://bitbucket.org/snakeyaml/snakeyaml
+                                          Used through SafeConstructor with an
+                                          alias cap, and composed rather than
+                                          loaded, so nothing in a config file is
+                                          turned into an object.
+
+  Clikt 5.1.0                             Apache-2.0
+  com.github.ajalt.clikt:clikt            https://github.com/ajalt/clikt
+
+  kotlinx.serialization 1.11.0            Apache-2.0
+  org.jetbrains.kotlinx:kotlinx-serialization-json
+                                          https://github.com/Kotlin/kotlinx.serialization
+
+  Kotlin standard library 2.4.10          Apache-2.0
+  org.jetbrains.kotlin:kotlin-stdlib      https://kotlinlang.org
+
+================================================================================
+Where the facts come from
+================================================================================
+
+Every rule states one fact about how a server behaves, and each was established
+from a primary source rather than from recollection. The source is recorded on
+the rule, printed by `serverdoctor rules`, shown by `--verbose`, and listed in
+docs/rules.md, so any claim this tool makes can be checked. The line numbers were
+read on 2026-08-24 from the default branch of each repository.
+
+  What the server prints when something breaks
+    Read from PaperMC/Paper: WatchdogThread.java (the hang banner, the 300-second
+    substitution for a non-positive timeout-time, and the disable.watchdog
+    property), AsyncCatcher.java (the failed main-thread check and the
+    "Asynchronous ...!" exception), SimplePluginManager.java (event blame, load
+    failures, ambiguous plugin names, the deprecation nag), CraftMagicNumbers.java
+    (unsupported and missing api-version), and the patch files for
+    MinecraftServer, DedicatedServer and Main (the deleted overload warning, the
+    port-bind failure, and the EULA line logged at INFO).
+
+  Folia's refusal to load a plugin
+    Read from PaperMC/Folia: the folia-supported descriptor key and the exact
+    comparison against the literal "true", plus the two refusal messages in the
+    region-threading patch.
+
+  Configuration defaults
+    Read from the fields that declare them in Paper's own configuration classes,
+    GlobalConfiguration.java and WorldConfiguration.java, and from SpigotConfig
+    .java for the spigot.yml keys. No default is quoted from a tuning guide,
+    because a guide can be a version behind and a field cannot.
+
+  JVM flags
+    The recommended set and the reasoning behind matching -Xms to -Xmx come from
+    PaperMC/docs (BSD-2-Clause), paper/admin/how-to/aikars-flags.md. The removal
+    of the Concurrent Mark Sweep collector is cited to JEP 363. Nothing in the
+    flags audit treats a missing tuning option as a defect.
+
+  Plugin provenance
+    Modrinth's API v2, verified by request on 2026-08-24: a file lookup by SHA-1
+    returns the version it belongs to, and the project endpoint carries the status,
+    licence and last-updated timestamp used for the abandonment signals. Requests
+    carry a User-Agent naming this tool, as that API asks.
+
+  Model Context Protocol
+    Message shapes, the newline-delimited stdio framing rule and the error codes
+    follow the specification at modelcontextprotocol/modelcontextprotocol.
+
+  Class file versions
+    Fixed by the JVM specification: major 52 is Java 8 and each release adds one.
+
+No Minecraft, Mojang, Paper, CraftBukkit, Bukkit or Folia code is included in,
+derived into, or distributed with this project, and no game data is bundled. The
+rule table quotes short diagnostic strings only as far as needed to recognise
+them in a log, so that its claims stay auditable against their sources.
+
+================================================================================
+Prior art
+================================================================================
+
+None of the projects below contributed code to this one. They are credited
+because they solved a neighbouring problem first, and reading them shaped what
+serverdoctor does and does not try to do. Stars, licences and last-commit dates
+were checked on 2026-08-24.
+
+  aternosorg/mclogs             MIT           The analyser behind mclo.gs, and the
+                                              closest existing thing to the `log`
+                                              command. It is a hosted service you
+                                              upload to; this is a CLI that reads
+                                              the file where it already is.
+  aternosorg/mclogs-bukkit      MIT           Sharing a log from inside the server,
+                                              which is the other half of that
+                                              workflow.
+  birdflop/botflop              MIT           A Discord bot that answers
+                                              configuration questions from a
+                                              timings report. Same advice, arrived
+                                              at from profiler output rather than
+                                              from the config files.
+  YouHaveTrouble/minecraft-optimization
+                                no licence    The tuning guide most of this
+                                              ecosystem's advice traces back to.
+                                              Nothing is copied from it: with no
+                                              licence, nothing may be.
+  birdflop/web                  NOASSERTION   flags.sh, the flag generator people
+                                              actually use.
+  etil2jz/etil-minecraft-flags  no licence    A widely copied variant of Aikar's
+                                              flags, unmaintained since 2022,
+                                              which is part of why stale flags
+                                              keep turning up in start scripts.
+  PaperMC/docs                  BSD-2-Clause  The documentation the flag rules cite,
+                                              and a start-script generator that
+                                              covers the same ground from the other
+                                              direction.
+  PaperMC/Paper                 mixed         The server whose behaviour nearly
+                                              every rule here describes. GitHub
+                                              reports NOASSERTION: the API and the
+                                              server are not under one licence.
+  PaperMC/Folia                 GPL-3.0       Regionised threading, and the plugin
+                                              refusal the log rules key on.
+  tlannigan/dig-yourself-out    GPL-3.0       Log parsing for modded clients. Useful
+                                              shape, different audience, copyleft.
+  packwiz/packwiz               MIT           Identifying Minecraft artifacts by
+                                              hash and keeping a set of them
+                                              current, for mods.
+  gorilla-devs/ferium           MPL-2.0       The same idea as a user-facing CLI.
+  modelcontextprotocol/modelcontextprotocol
+                                NOASSERTION   The protocol the `mcp` command speaks.
+
+  SalyyS1/foliascan             Apache-2.0    Earlier tool by the same author: where
+                                              a plugin jar breaks on Folia. The
+                                              finding model and the "analyse but do
+                                              not blame vendored code" split come
+                                              from it.
+  SalyyS1/pluginscope           Apache-2.0    Earlier tool by the same author: jar
+                                              packaging, API compatibility and
+                                              resource packs. The rule/provenance
+                                              structure, the console reporter and
+                                              the MCP surface follow the same
+                                              design.
+
+serverdoctor is an independent project. It is not affiliated with, endorsed by or
+sponsored by PaperMC, Mojang, Microsoft or Modrinth.
+
+The fixtures under src/test/resources are original, deliberately broken servers
+and logs written for this project. They contain no real player data, no real
+credentials and no Minecraft, Paper or Bukkit code.

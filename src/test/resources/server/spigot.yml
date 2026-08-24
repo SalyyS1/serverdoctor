@@ -1,0 +1,8 @@
+# Fixture spigot.yml for serverdoctor tests.
+settings:
+  bungeecord: false
+  timeout-time: 900
+  restart-on-crash: true
+world-settings:
+  default:
+    mob-spawn-range: 6

@@ -1,0 +1,20 @@
+# Fixture config/paper-global.yml for serverdoctor tests. No version key on purpose.
+console:
+  enable-brigadier-highlighting: true
+  has-all-permissions: true
+proxies:
+  bungee-cord:
+    online-mode: true
+  velocity:
+    enabled: true
+    online-mode: true
+    secret: ''
+spark:
+  enabled: false
+unsupported-settings:
+  allow-piston-duplication: true
+  allow-permanent-block-break-exploits: false
+  perform-username-validation: true
+watchdog:
+  early-warning-delay: 10000
+  early-warning-every: 5000

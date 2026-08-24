@@ -1,0 +1,54 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v5
+
+      - name: Build and test
+        run: ./gradlew build --no-daemon
+
+      - name: Smoke test the CLI
+        run: |
+          set -euo pipefail
+          CLI=$(ls build/libs/serverdoctor-*.jar | grep -v -- '-thin' | head -1)
+          echo "using $CLI"
+          java -jar "$CLI" --version
+          java -jar "$CLI" rules > /dev/null
+          # The audits have to survive their own fixtures, including the deliberately broken ones.
+          java -jar "$CLI" log src/test/resources/logs/broken-paper-server.log --no-color --fail-on never
+          java -jar "$CLI" config src/test/resources/server --no-color --fail-on never
+          java -jar "$CLI" flags src/test/resources/server --host-memory 16G --no-color --fail-on never
+          java -jar "$CLI" plugins build/libs --no-color --fail-on never
+          # A broken log must exit non-zero when asked to fail on critical findings, or CI use is
+          # pointless. `!` keeps the pipeline going while asserting the failure.
+          ! java -jar "$CLI" log src/test/resources/logs/broken-paper-server.log --no-color --fail-on critical
+          # The MCP server has to answer a handshake on stdio and exit on EOF.
+          printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-11-25"}}' \
+            | java -jar "$CLI" mcp | grep -q '"protocolVersion"'
+
+      - name: Upload the CLI jar
+        uses: actions/upload-artifact@v5
+        with:
+          name: serverdoctor
+          path: build/libs/serverdoctor-*.jar
+          if-no-files-found: error

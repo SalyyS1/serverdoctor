@@ -1,0 +1,62 @@
+[22:30:58] [ServerMain/INFO]: Loading Paper 26.2-116-main@8bd0c1f (2026-08-20T18:42:11Z) for Minecraft 26.2
+[22:30:58] [ServerMain/INFO]: Loading libraries, please wait...
+[22:31:01] [Server thread/INFO]: Starting minecraft server version 26.2
+[22:31:01] [Server thread/INFO]: This server is running Paper version 26.2-116-main (MC: 26.2)
+[22:31:02] [Server thread/INFO]: You need to agree to the EULA in order to run the server. Go to eula.txt for more info.
+[22:32:40] [ServerMain/INFO]: Loading Paper 26.2-116-main@8bd0c1f (2026-08-20T18:42:11Z) for Minecraft 26.2
+[22:33:10] [Server thread/ERROR]: Could not load 'plugins/OldEconomy.jar': circular dependency detected
+[22:33:10] [Server thread/ERROR]: Ambiguous plugin name `ShopKeeper' for files `plugins/ShopKeeper-2.4.1.jar' and `plugins/ShopKeeper-2.3.0.jar'
+[22:33:11] [Server thread/ERROR]: Could not load 'plugins/RegionGuard.jar'
+java.lang.UnsupportedClassVersionError: com/example/regionguard/RegionGuard has been compiled by a more recent version of the Java Runtime (class file version 69.0), this version of the Java Runtime only recognizes class file versions up to 65.0
+	at java.base/java.lang.ClassLoader.defineClass1(Native Method)
+	at org.bukkit.plugin.java.PluginClassLoader.findClass(PluginClassLoader.java:132)
+	at org.bukkit.plugin.java.JavaPluginLoader.loadPlugin(JavaPluginLoader.java:151)
+[22:33:12] [Server thread/WARN]: Legacy plugin AncientChat v1.2 does not specify an api-version.
+[22:33:15] [Server thread/INFO]: [WorldTools] Enabling WorldTools v3.0.1
+[22:33:20] [Server thread/INFO]: Done (19.114s)! For help, type "help"
+[22:41:02] [Craft Scheduler Thread - 12/ERROR]: Thread Craft Scheduler Thread - 12 failed main thread check: Entity add
+java.lang.Throwable
+	at org.spigotmc.AsyncCatcher.catchOp(AsyncCatcher.java:10)
+	at net.minecraft.server.level.ServerLevel.addFreshEntity(ServerLevel.java:1204)
+	at com.example.spawnhelper.SpawnTask.run(SpawnTask.java:64)
+	at org.bukkit.craftbukkit.scheduler.CraftTask.run(CraftTask.java:101)
+[22:41:02] [Craft Scheduler Thread - 12/WARN]: [SpawnHelper] Task #418 for SpawnHelper v1.4.0 generated an exception
+java.lang.IllegalStateException: Asynchronous Entity add!
+	at org.spigotmc.AsyncCatcher.catchOp(AsyncCatcher.java:11)
+	at com.example.spawnhelper.SpawnTask.run(SpawnTask.java:64)
+[22:42:17] [Server thread/ERROR]: Could not pass event PlayerJoinEvent to WorldTools v3.0.1
+java.lang.NullPointerException: Cannot invoke "java.util.UUID.toString()" because "uuid" is null
+	at com.example.worldtools.JoinListener.onJoin(JoinListener.java:41)
+	at org.bukkit.plugin.EventExecutor$2.execute(EventExecutor.java:77)
+	at org.bukkit.plugin.RegisteredListener.callEvent(RegisteredListener.java:70)
+	at io.papermc.paper.plugin.manager.PaperEventManager.callEvent(PaperEventManager.java:54)
+[22:42:31] [Server thread/ERROR]: Could not pass event PlayerJoinEvent to WorldTools v3.0.1
+java.lang.NullPointerException: Cannot invoke "java.util.UUID.toString()" because "uuid" is null
+	at com.example.worldtools.JoinListener.onJoin(JoinListener.java:41)
+	at org.bukkit.plugin.EventExecutor$2.execute(EventExecutor.java:77)
+[22:43:04] [Server thread/WARN]: Nag author(s): 'Someone' of 'AncientChat' about the following: "org.bukkit.event.player.AsyncPlayerChatEvent is deprecated"
+[22:51:44] [Paper Watchdog Thread/ERROR]: ------------------------------
+[22:51:44] [Paper Watchdog Thread/ERROR]: The server has stopped responding! This is (probably) not a Paper bug.
+[22:51:44] [Paper Watchdog Thread/ERROR]: If you see a plugin in the Server thread dump below, then please report it to that author
+[22:51:44] [Paper Watchdog Thread/ERROR]: 	 *Especially* if it looks like HTTP or MySQL operations are occurring
+[22:51:44] [Paper Watchdog Thread/ERROR]: Paper version: 26.2-116-main
+[22:51:44] [Paper Watchdog Thread/ERROR]: ------------------------------
+[22:51:44] [Paper Watchdog Thread/ERROR]: Server thread dump (Look for plugins here before reporting to Paper!):
+[22:51:44] [Paper Watchdog Thread/ERROR]: 	at java.base/java.net.SocketInputStream.socketRead0(Native Method)
+[22:51:44] [Paper Watchdog Thread/ERROR]: 	at com.mysql.cj.protocol.a.SimplePacketReader.readMessage(SimplePacketReader.java:66)
+[22:51:44] [Paper Watchdog Thread/ERROR]: 	at com.example.worldtools.storage.MySqlStore.load(MySqlStore.java:88)
+[22:51:44] [Paper Watchdog Thread/ERROR]: 	at com.example.worldtools.JoinListener.onJoin(JoinListener.java:37)
+[22:51:44] [Paper Watchdog Thread/ERROR]: ------------------------------
+[22:53:02] [Server thread/ERROR]: Encountered an unexpected exception
+java.lang.OutOfMemoryError: Java heap space
+	at com.example.worldtools.cache.ChunkCache.put(ChunkCache.java:52)
+	at com.example.worldtools.JoinListener.onJoin(JoinListener.java:44)
+[22:53:07] [Server thread/ERROR]: Failed to read region file
+java.lang.IllegalStateException: Region file is corrupt
+	at com.example.mapviewer.RegionReader.read(RegionReader.java:31)
+[22:53:08] [Server thread/ERROR]: Failed to read region file
+java.lang.IllegalStateException: Region file is corrupt
+	at com.example.mapviewer.RegionReader.read(RegionReader.java:31)
+[22:53:09] [Server thread/ERROR]: Failed to read region file
+java.lang.IllegalStateException: Region file is corrupt
+	at com.example.mapviewer.RegionReader.read(RegionReader.java:31)
