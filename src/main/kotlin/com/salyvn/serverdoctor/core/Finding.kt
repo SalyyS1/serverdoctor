@@ -98,6 +98,8 @@ class FindingSink {
         detail: String,
         evidence: List<String> = emptyList(),
         severityOverride: Severity? = null,
+        /** Set when one rule can be established from more than one source and this hit used one. */
+        provenanceOverride: String? = null,
     ) {
         collected += Finding(
             ruleId = rule.id,
@@ -107,7 +109,7 @@ class FindingSink {
             detail = detail,
             evidence = evidence,
             fix = rule.fix,
-            provenance = rule.provenance,
+            provenance = provenanceOverride ?: rule.provenance,
         )
     }
 

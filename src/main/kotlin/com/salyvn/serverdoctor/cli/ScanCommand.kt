@@ -17,6 +17,7 @@ import com.salyvn.serverdoctor.flags.StartScriptReader
 import com.salyvn.serverdoctor.input.LogSource
 import com.salyvn.serverdoctor.log.LogTriage
 import com.salyvn.serverdoctor.perms.PermsAudit
+import com.salyvn.serverdoctor.plugins.HangarClient
 import com.salyvn.serverdoctor.plugins.ModrinthClient
 import com.salyvn.serverdoctor.plugins.PluginIndex
 import com.salyvn.serverdoctor.plugins.PluginsAudit
@@ -72,8 +73,8 @@ class ScanCommand : ReportCommand("scan") {
         }
 
         if (index.jars.isNotEmpty()) {
-            val client = if (online) ModrinthClient() else null
-            reports += PluginsAudit(client).analyse(index, pluginsDir.toString())
+            val audit = if (online) PluginsAudit(ModrinthClient(), HangarClient()) else PluginsAudit()
+            reports += audit.analyse(index, pluginsDir.toString())
         }
 
         latestLog(target)?.let { log ->

@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.parameters.arguments.argument
 import com.github.ajalt.clikt.parameters.options.flag
 import com.github.ajalt.clikt.parameters.options.option
 import com.github.ajalt.clikt.parameters.types.path
+import com.salyvn.serverdoctor.plugins.HangarClient
 import com.salyvn.serverdoctor.plugins.ModrinthClient
 import com.salyvn.serverdoctor.plugins.PluginIndex
 import com.salyvn.serverdoctor.plugins.PluginsAudit
@@ -30,7 +31,7 @@ class PluginsCommand : ReportCommand("plugins") {
 
     private val online by option(
         "--online",
-        help = "Look each jar up by hash on Modrinth to report provenance and updates",
+        help = "Look each jar up by hash on Modrinth, then by name on Hangar, to report provenance",
     ).flag()
 
     override fun run() {
@@ -49,7 +50,7 @@ class PluginsCommand : ReportCommand("plugins") {
             throw ProgramResult(2)
         }
 
-        val client = if (online) ModrinthClient() else null
-        emit(listOf(PluginsAudit(client).analyse(index, directory.toString())))
+        val audit = if (online) PluginsAudit(ModrinthClient(), HangarClient()) else PluginsAudit()
+        emit(listOf(audit.analyse(index, directory.toString())))
     }
 }

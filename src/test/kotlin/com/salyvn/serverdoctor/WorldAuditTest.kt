@@ -36,8 +36,26 @@ class WorldAuditTest {
             "W007", // DIM-1 inside world and world_nether beside it
             "W008", // hardcore
             "W009", // allowCommands
+            "W010", // a region file shorter than its own header
+            "W011", // a header pointing at sectors the file does not have
         )
         assertTrue(ids().containsAll(expected), "missing ${expected - ids()} in ${ids()}")
+    }
+
+    @Test
+    fun `reads the region header without reporting an oversized chunk`() {
+        val short = report.findings.first { it.ruleId == "W010" }
+        assertTrue(short.location.endsWith("r.0.2.mca"), short.location)
+
+        val outside = report.findings.first { it.ruleId == "W011" }
+        assertTrue(outside.location.endsWith("r.0.3.mca"), outside.location)
+        assertTrue(outside.detail.startsWith("2 of 3 locations"), outside.detail)
+        assertTrue(outside.evidence.any { it.contains("inside the header") }, outside.evidence.toString())
+
+        // 255 sectors is Spigot's oversized marker rather than a length, so the file that uses it is
+        // healthy and must produce nothing at all.
+        val about = report.findings.filter { it.location.endsWith("r.0.4.mca") }
+        assertTrue(about.isEmpty(), "an oversized chunk was reported as damage: $about")
     }
 
     @Test
@@ -53,7 +71,8 @@ class WorldAuditTest {
     fun `reads the version and the name out of gzipped nbt`() {
         assertEquals("world, saved by 1.21.4 (data version 4189)", report.facts["world"])
         assertEquals("5", report.facts["worlds"])
-        assertEquals("5", report.facts["region files"])
+        assertEquals("8", report.facts["region files"])
+        assertEquals("15", report.facts["chunks stored"])
         assertEquals("3", report.facts["player data"])
     }
 
@@ -84,8 +103,12 @@ class WorldAuditTest {
 
     private fun plant(root: Path) {
         val world = FixtureWorlds.world(root, "world", hardcore = true)
-        FixtureWorlds.regionFile(world.resolve("region").resolve("r.0.1.mca"), 0)
-        FixtureWorlds.regionFile(world.resolve("DIM-1").resolve("region").resolve("r.0.0.mca"), 4096)
+        val region = world.resolve("region")
+        FixtureWorlds.regionFile(region.resolve("r.0.1.mca"), 0)
+        FixtureWorlds.regionFileTooShort(region.resolve("r.0.2.mca"))
+        FixtureWorlds.regionFileWithBadHeader(region.resolve("r.0.3.mca"))
+        FixtureWorlds.regionFileWithOversizedChunk(region.resolve("r.0.4.mca"))
+        FixtureWorlds.regionFileWithChunks(world.resolve("DIM-1").resolve("region").resolve("r.0.0.mca"), 2)
         FixtureWorlds.datapack(world, "carpet-rules", withMetadata = true)
         FixtureWorlds.datapack(world, "extracted-too-deep", withMetadata = false)
         FixtureWorlds.playerData(world, 3)
@@ -98,7 +121,10 @@ class WorldAuditTest {
             allowCommands = true,
         )
 
-        FixtureWorlds.regionFile(root.resolve("world_the_end").resolve("region").resolve("r.0.0.mca"), 4096)
+        FixtureWorlds.regionFileWithChunks(
+            root.resolve("world_the_end").resolve("region").resolve("r.0.0.mca"),
+            1,
+        )
         FixtureWorlds.levelDat(root.resolve("world_old").resolve("level.dat_old"), "world_old", 4189, "1.21.4")
         FixtureWorlds.truncatedLevelDat(root.resolve("world_backup").resolve("level.dat"))
     }

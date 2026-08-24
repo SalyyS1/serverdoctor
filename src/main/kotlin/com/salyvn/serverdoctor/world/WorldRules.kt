@@ -17,6 +17,11 @@ object WorldRules {
 
     private const val MIGRATION = "PaperMC/Paper paper-server/src/main/java/io/papermc/paper/world/migration/WorldFolderMigration.java:33-37,108"
 
+    private const val REGION_HEADER = "PaperMC/Paper paper-server/patches/features/" +
+        "0026-Attempt-to-recalculate-regionfile-header-if-it-is-co.patch:176,313 — the first two " +
+        "4 KiB sectors are the header, and each of the 1024 locations is sector offset << 8 | length " +
+        "in sectors"
+
     val LEVEL_DAT_MISSING = Rule(
         id = "W001",
         area = RuleArea.WORLD,
@@ -125,6 +130,33 @@ object WorldRules {
         fix = null,
     )
 
+    val REGION_HEADER_INCOMPLETE = Rule(
+        id = "W010",
+        area = RuleArea.WORLD,
+        severity = Severity.CRITICAL,
+        title = "A region file is smaller than its own header",
+        rationale = "The first 8 KiB of a region file is the table that says where each of its 1024 " +
+            "chunks lives. A file shorter than that has data in it and no way to find any of it, which " +
+            "is what a copy taken while the server was writing looks like.",
+        provenance = REGION_HEADER,
+        fix = "Restore the named file from a backup. A file this short has nothing recoverable in it.",
+    )
+
+    val REGION_HEADER_POINTS_OUTSIDE = Rule(
+        id = "W011",
+        area = RuleArea.WORLD,
+        severity = Severity.CRITICAL,
+        title = "A region file's chunk table points outside the file",
+        rationale = "A location names a sector that is inside the header or past the end of the file, so " +
+            "the chunk it describes cannot be read from where it says it is. Paper notices this on load, " +
+            "warns, and rebuilds the header by scanning the file — which is a recovery, and recoveries " +
+            "are better done from a copy.",
+        provenance = "$REGION_HEADER; the sector-overlaps-header case is the warning in paper-server/" +
+            "patches/sources/net/minecraft/world/level/chunk/storage/RegionFile.java.patch:15-17",
+        fix = "Copy the world before starting the server again, then let Paper rebuild the header and " +
+            "read what it says it lost.",
+    )
+
     val all: List<Rule> = listOf(
         LEVEL_DAT_MISSING,
         LEVEL_DAT_UNREADABLE,
@@ -135,5 +167,7 @@ object WorldRules {
         BOTH_LEGACY_LAYOUTS,
         HARDCORE,
         CHEATS_ENABLED,
+        REGION_HEADER_INCOMPLETE,
+        REGION_HEADER_POINTS_OUTSIDE,
     )
 }

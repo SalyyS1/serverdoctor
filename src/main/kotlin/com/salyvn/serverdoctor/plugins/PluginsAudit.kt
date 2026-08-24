@@ -10,13 +10,20 @@ import java.time.format.DateTimeParseException
 
 /**
  * Audits a plugins directory: what is installed, what is broken about the set, and — when asked — what
- * a public index says about where each file came from.
+ * the public indexes say about where each file came from.
  *
  * The provenance half is opt-in because it is the only thing in this tool that talks to the network.
  * Everything else works on a box with no route out, which is the box people are usually on when a
  * server is down.
+ *
+ * Two indexes are consulted in order, and the order matters. Modrinth answers to a digest, so it either
+ * knows a file or it does not. Hangar has to be asked by name, which can only ever be a weaker claim,
+ * so it is asked second and its answers are worded as provenance rather than as identification.
  */
-class PluginsAudit(private val modrinth: ModrinthClient? = null) {
+class PluginsAudit(
+    private val modrinth: ModrinthClient? = null,
+    private val hangar: HangarClient? = null,
+) {
 
     /** Loader names a Paper-family server can load, used to decide what "newer" means. */
     private val platforms = setOf("paper", "folia", "bukkit", "spigot", "purpur")
@@ -141,64 +148,165 @@ class PluginsAudit(private val modrinth: ModrinthClient? = null) {
         client: ModrinthClient,
     ) {
         var identified = 0
+        var viaHangar = 0
         var unknown = 0
 
         for (jar in plugins) {
             val match = client.findByHash(jar.sha1)
             if (match == null) {
-                unknown++
-                sink.add(
-                    rule = PluginRules.UNKNOWN_ORIGIN,
-                    location = jar.fileName,
-                    detail = "This exact file is not in the index that was queried. That is expected " +
-                        "for a paid or private build.",
-                    evidence = listOf("sha1 ${jar.sha1}"),
-                )
+                when (val fallback = askHangar(jar, sink)) {
+                    is HangarLookup.Matched -> {
+                        identified++
+                        viaHangar++
+                        describeHangarMatch(jar, fallback, sink)
+                    }
+
+                    else -> {
+                        unknown++
+                        if (fallback !is HangarLookup.NotAmongVersions) {
+                            sink.add(
+                                rule = PluginRules.UNKNOWN_ORIGIN,
+                                location = jar.fileName,
+                                detail = "This exact file is not in the indexes that were queried. That " +
+                                    "is expected for a paid or private build.",
+                                evidence = listOf("sha1 ${jar.sha1}", "sha256 ${jar.sha256}"),
+                            )
+                        }
+                    }
+                }
                 continue
             }
 
             identified++
-            val project = client.project(match.projectId, platforms)
-            val projectName = project?.title ?: match.projectId
-
-            if (project?.status?.lowercase() in ARCHIVED_STATUSES) {
-                sink.add(
-                    rule = PluginRules.UPSTREAM_ARCHIVED,
-                    location = jar.fileName,
-                    detail = "$projectName is marked ${project?.status} upstream.",
-                )
-            }
-
-            val latest = project?.latestForPlatform
-            if (latest != null && latest != match.versionNumber) {
-                sink.add(
-                    rule = PluginRules.OUTDATED,
-                    location = jar.fileName,
-                    detail = "$projectName ${match.versionNumber} is installed; $latest is published.",
-                    evidence = listOfNotNull(
-                        match.gameVersions.takeIf { it.isNotEmpty() }
-                            ?.let { "installed build targets ${it.joinToString(", ")}" },
-                    ),
-                )
-            }
-
-            project?.updated?.let { updated ->
-                monthsSince(updated)?.let { months ->
-                    if (months >= STALE_MONTHS) {
-                        sink.add(
-                            rule = PluginRules.UPSTREAM_STALE,
-                            location = jar.fileName,
-                            detail = "$projectName last published $months months ago ($updated).",
-                            severityOverride = Severity.INFO,
-                        )
-                    }
-                }
-            }
+            describeModrinthMatch(jar, match, client, sink)
         }
 
         facts["identified by hash"] = "$identified of ${plugins.size}"
-        if (unknown > 0) facts["not in the index"] = unknown.toString()
-        if (client.failures > 0) facts["lookup failures"] = client.failures.toString()
+        if (viaHangar > 0) facts["identified on hangar"] = viaHangar.toString()
+        if (unknown > 0) facts["not in an index"] = unknown.toString()
+        val failures = client.failures + (hangar?.failures ?: 0)
+        if (failures > 0) facts["lookup failures"] = failures.toString()
+    }
+
+    /**
+     * Hangar, only for a file the digest-indexed source did not know. The "project exists, this is not
+     * one of its builds" answer is reported here rather than by the caller, because it is the only
+     * finding in this audit that comes from a name rather than from a hash and it has to say so.
+     */
+    private fun askHangar(jar: PluginJar, sink: FindingSink): HangarLookup? {
+        val client = hangar ?: return null
+        val name = jar.descriptor?.name ?: return null
+        val lookup = client.lookup(name, jar.sha256)
+
+        if (lookup !is HangarLookup.NotAmongVersions) return lookup
+
+        val declared = jar.descriptor?.version
+        val samePublishedVersion = declared != null && lookup.versionNames.any { it.equals(declared, true) }
+
+        if (samePublishedVersion) {
+            sink.add(
+                rule = PluginRules.PUBLISHED_VERSION_DIFFERS,
+                location = jar.fileName,
+                detail = "${lookup.owner}/${lookup.slug} publishes a version $declared, and the file it " +
+                    "publishes is not this file.",
+                evidence = listOf(
+                    "installed sha256 ${jar.sha256}",
+                    "hangar.papermc.io/${lookup.owner}/${lookup.slug}/versions/$declared",
+                ),
+                provenanceOverride = PluginRules.HANGAR,
+            )
+            return lookup
+        }
+
+        sink.add(
+            rule = PluginRules.NOT_A_PUBLISHED_BUILD,
+            location = jar.fileName,
+            detail = "${lookup.owner}/${lookup.slug} exists on Hangar and none of its " +
+                "${lookup.versionsChecked} most recent " +
+                (if (lookup.versionsChecked == 1) "file has" else "files have") +
+                " this file's digest. It declares ${declared ?: "no version"}; the newest published is " +
+                "${lookup.latestVersion ?: "unknown"}.",
+            evidence = listOf("installed sha256 ${jar.sha256}"),
+            provenanceOverride = PluginRules.HANGAR,
+        )
+        return lookup
+    }
+
+    private fun describeHangarMatch(jar: PluginJar, match: HangarLookup.Matched, sink: FindingSink) {
+        val where = "${match.owner}/${match.slug}"
+
+        if (match.latestVersion != null && match.latestVersion != match.version) {
+            sink.add(
+                rule = PluginRules.OUTDATED,
+                location = jar.fileName,
+                detail = "$where ${match.version} is installed; ${match.latestVersion} is published on " +
+                    "Hangar.",
+                evidence = listOfNotNull(
+                    match.gameVersions.takeIf { it.isNotEmpty() }
+                        ?.let { "installed build targets ${it.joinToString(", ")}" },
+                    match.channel?.let { "channel $it" },
+                ),
+                provenanceOverride = PluginRules.HANGAR,
+            )
+        }
+
+        match.projectUpdated?.let { updated ->
+            monthsSince(updated)?.let { months ->
+                if (months >= STALE_MONTHS) {
+                    sink.add(
+                        rule = PluginRules.UPSTREAM_STALE,
+                        location = jar.fileName,
+                        detail = "$where last published $months months ago ($updated).",
+                        severityOverride = Severity.INFO,
+                        provenanceOverride = PluginRules.HANGAR,
+                    )
+                }
+            }
+        }
+    }
+
+    private fun describeModrinthMatch(
+        jar: PluginJar,
+        match: VersionMatch,
+        client: ModrinthClient,
+        sink: FindingSink,
+    ) {
+        val project = client.project(match.projectId, platforms)
+        val projectName = project?.title ?: match.projectId
+
+        if (project?.status?.lowercase() in ARCHIVED_STATUSES) {
+            sink.add(
+                rule = PluginRules.UPSTREAM_ARCHIVED,
+                location = jar.fileName,
+                detail = "$projectName is marked ${project?.status} upstream.",
+            )
+        }
+
+        val latest = project?.latestForPlatform
+        if (latest != null && latest != match.versionNumber) {
+            sink.add(
+                rule = PluginRules.OUTDATED,
+                location = jar.fileName,
+                detail = "$projectName ${match.versionNumber} is installed; $latest is published.",
+                evidence = listOfNotNull(
+                    match.gameVersions.takeIf { it.isNotEmpty() }
+                        ?.let { "installed build targets ${it.joinToString(", ")}" },
+                ),
+            )
+        }
+
+        project?.updated?.let { updated ->
+            monthsSince(updated)?.let { months ->
+                if (months >= STALE_MONTHS) {
+                    sink.add(
+                        rule = PluginRules.UPSTREAM_STALE,
+                        location = jar.fileName,
+                        detail = "$projectName last published $months months ago ($updated).",
+                        severityOverride = Severity.INFO,
+                    )
+                }
+            }
+        }
     }
 
     private fun monthsSince(timestamp: String): Long? = try {

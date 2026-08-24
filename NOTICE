@@ -94,8 +94,31 @@ read on 2026-08-24 from the default branch of each repository.
   Plugin provenance
     Modrinth's API v2, verified by request on 2026-08-24: a file lookup by SHA-1
     returns the version it belongs to, and the project endpoint carries the status,
-    licence and last-updated timestamp used for the abandonment signals. Requests
-    carry a User-Agent naming this tool, as that API asks.
+    licence and last-updated timestamp used for the abandonment signals.
+
+    Hangar's API v1, verified by request on 2026-08-24 and asked only when a digest
+    lookup has already missed: slug lookup is case-insensitive, an unknown slug
+    answers 404, the versions listing is newest first and clamps its page size to
+    25, and each version carries downloads.<platform>.fileInfo.sha256Hash — the
+    digest of the file Hangar itself serves. Verified end to end against a real
+    published build, whose downloaded bytes hashed to the value the API reports.
+    Hangar has no endpoint that takes a digest, so that lookup runs by name, which
+    is a weaker claim than a hash and is worded as one wherever it is reported.
+
+    Requests to both carry a User-Agent naming this tool, as those APIs ask.
+
+  Region file layout
+    Read from PaperMC/Paper: the header is the first two 4 KiB sectors and each of
+    the 1024 locations packs a sector offset and a length in sectors, per
+    paper-server/patches/features/0026-Attempt-to-recalculate-regionfile-header-
+    if-it-is-co.patch, which exists because Paper repairs that header when it is
+    corrupt. A location whose sector overlaps the header is the warning in
+    patches/sources/net/minecraft/world/level/chunk/storage/RegionFile.java.patch.
+    A length of 255 sectors is Spigot's marker for a chunk stored oversized, whose
+    real length lives in the chunk's own prefix, so it is deliberately not
+    bounds-checked — treating it as a size would report healthy files as damaged.
+    Vanilla's own padding behaviour is not in Paper's repository and no rule
+    depends on it.
 
   Model Context Protocol
     Message shapes, the newline-delimited stdio framing rule and the error codes
@@ -146,6 +169,11 @@ were checked on 2026-08-24.
                                               and a start-script generator that
                                               covers the same ground from the other
                                               direction.
+  HangarMC/Hangar               MIT           PaperMC's plugin repository, whose API
+                                              is the second provenance source. Its
+                                              versions carry the SHA-256 of the file
+                                              it serves, which is what makes a
+                                              name-based lookup worth anything.
   PaperMC/Paper                 mixed         The server whose behaviour nearly
                                               every rule here describes. GitHub
                                               reports NOASSERTION: the API and the

@@ -20,6 +20,9 @@ object FixtureWorlds {
     private const val TAG_STRING = 8
     private const val TAG_COMPOUND = 10
 
+    private const val SECTOR_BYTES = 4096
+    private const val HEADER_SECTORS = 2
+
     /** A world folder with a valid level.dat and one region file. */
     fun world(
         root: Path,
@@ -30,10 +33,13 @@ object FixtureWorlds {
         hardcore: Boolean = false,
         allowCommands: Boolean = false,
         regionFiles: Int = 1,
+        chunksPerRegion: Int = 4,
     ): Path {
         val world = root.resolve(name)
         levelDat(world.resolve("level.dat"), levelName, dataVersion, versionName, hardcore, allowCommands)
-        repeat(regionFiles) { index -> regionFile(world.resolve("region").resolve("r.0.$index.mca"), 4096) }
+        repeat(regionFiles) { index ->
+            regionFileWithChunks(world.resolve("region").resolve("r.0.$index.mca"), chunksPerRegion)
+        }
         return world
     }
 
@@ -101,6 +107,59 @@ object FixtureWorlds {
     fun regionFile(target: Path, bytes: Int): Path {
         Files.createDirectories(target.parent)
         Files.write(target, ByteArray(bytes))
+        return target
+    }
+
+    /**
+     * A region file whose header names [chunks] chunks and has a sector for each of them. The bytes of
+     * the chunks themselves are zeros: the audit reads the header and never a chunk, so writing real
+     * compressed NBT here would test nothing that is not already tested.
+     */
+    fun regionFileWithChunks(target: Path, chunks: Int): Path {
+        val bytes = ByteArray((HEADER_SECTORS + chunks) * SECTOR_BYTES)
+        for (index in 0 until chunks) {
+            putLocation(bytes, index, sector = HEADER_SECTORS + index, sectors = 1)
+        }
+        return write(target, bytes)
+    }
+
+    /**
+     * A region file that lost its tail: the header still names chunks in sectors the file no longer
+     * has, and one location points into the header itself.
+     */
+    fun regionFileWithBadHeader(target: Path): Path {
+        val bytes = ByteArray((HEADER_SECTORS + 1) * SECTOR_BYTES)
+        putLocation(bytes, 0, sector = HEADER_SECTORS, sectors = 1)
+        putLocation(bytes, 1, sector = 99, sectors = 2)
+        putLocation(bytes, 2, sector = 0, sectors = 1)
+        return write(target, bytes)
+    }
+
+    /**
+     * A region file holding a chunk stored oversized: 255 sectors is Spigot's marker, not a length, so
+     * this file is healthy and reporting it would be a false positive.
+     */
+    fun regionFileWithOversizedChunk(target: Path): Path {
+        val bytes = ByteArray((HEADER_SECTORS + 1) * SECTOR_BYTES)
+        putLocation(bytes, 0, sector = HEADER_SECTORS, sectors = 255)
+        return write(target, bytes)
+    }
+
+    /** A region file that stops inside its own header. */
+    fun regionFileTooShort(target: Path, bytes: Int = 512): Path = write(target, ByteArray(bytes))
+
+    private fun putLocation(bytes: ByteArray, index: Int, sector: Int, sectors: Int) {
+        val packed = (sector shl 8) or (sectors and 0xFF)
+        val at = index * 4
+        bytes[at] = (packed ushr 24).toByte()
+        bytes[at + 1] = (packed ushr 16).toByte()
+        bytes[at + 2] = (packed ushr 8).toByte()
+        bytes[at + 3] = packed.toByte()
+    }
+
+    private fun write(target: Path, bytes: ByteArray): Path {
+        Files.createDirectories(target.parent)
+        Files.write(target, bytes)
         return target
     }
 

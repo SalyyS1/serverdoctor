@@ -15,7 +15,11 @@ import com.salyvn.serverdoctor.core.Severity
  */
 object PluginRules {
 
-    private const val MODRINTH = "Modrinth API v2 GET /version_file/{sha1}, verified 2026-08-24"
+    const val MODRINTH = "Modrinth API v2 GET /version_file/{sha1}, verified 2026-08-24"
+
+    const val HANGAR = "Hangar API v1 GET /projects/{slug} and /projects/{slug}/versions, verified " +
+        "2026-08-24: slug lookup is case-insensitive and each version carries " +
+        "downloads.<platform>.fileInfo.sha256Hash, the digest of the published file"
     private const val MANAGER = "PaperMC/Paper paper-api/src/main/java/org/bukkit/plugin/SimplePluginManager.java"
     private const val MAGIC = "PaperMC/Paper paper-server/src/main/java/org/bukkit/craftbukkit/util/CraftMagicNumbers.java"
     private const val FOLIA_PATCH = "PaperMC/Folia folia-api/paper-patches/features/0003-Require-plugins-to-be-explicitly-marked-as-Folia-sup.patch:42-51"
@@ -105,10 +109,11 @@ object PluginRules {
         area = RuleArea.PLUGINS,
         severity = Severity.INFO,
         title = "No public source recognised this file",
-        rationale = "Says only what it says: the hash is not in the index that was queried. Paid " +
-            "plugins, private builds and anything from a forum attachment are all expected to land " +
-            "here, so this is not a safety finding. It is a gap in provenance.",
-        provenance = MODRINTH,
+        rationale = "Says only what it says: the hash is in neither index that was queried, and no " +
+            "project answers to the plugin's own name. Paid plugins, private builds and anything from a " +
+            "forum attachment are all expected to land here, so this is not a safety finding. It is a " +
+            "gap in provenance.",
+        provenance = "$MODRINTH; then $HANGAR",
         fix = "For a plugin you expect to be public, check you downloaded it from where you think " +
             "you did.",
     )
@@ -147,6 +152,32 @@ object PluginRules {
         fix = null,
     )
 
+    val NOT_A_PUBLISHED_BUILD = Rule(
+        id = "P012",
+        area = RuleArea.PLUGINS,
+        severity = Severity.INFO,
+        title = "A project of this name publishes builds, and this file is not one of them",
+        rationale = "The plugin's own name resolves to a project, and none of that project's recent " +
+            "files has this file's digest. The ordinary explanations are an older release, a fork, or a " +
+            "jar somebody compiled themselves — which is exactly why this is reported as provenance " +
+            "rather than as damage.",
+        provenance = HANGAR,
+        fix = "If this was meant to be an official build, download it again from the project page and " +
+            "compare.",
+    )
+
+    val PUBLISHED_VERSION_DIFFERS = Rule(
+        id = "P013",
+        area = RuleArea.PLUGINS,
+        severity = Severity.WARNING,
+        title = "The published build of this version is a different file",
+        rationale = "The jar declares a version the project has published, and the published file with " +
+            "that version number does not have this file's digest. One of the two was changed after it " +
+            "was built, so the version number no longer says what is running.",
+        provenance = HANGAR,
+        fix = "Replace it with the published build, or find out who repacked it and why.",
+    )
+
     val all: List<Rule> = listOf(
         MISSING_DEPENDENCY,
         DUPLICATE_PLUGIN,
@@ -159,5 +190,7 @@ object PluginRules {
         OUTDATED,
         UPSTREAM_ARCHIVED,
         UPSTREAM_STALE,
+        NOT_A_PUBLISHED_BUILD,
+        PUBLISHED_VERSION_DIFFERS,
     )
 }

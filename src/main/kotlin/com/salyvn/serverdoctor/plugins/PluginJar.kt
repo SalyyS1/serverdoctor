@@ -66,8 +66,9 @@ data class PluginDescriptor(
  * One jar in a `plugins/` directory, described without executing any of it: the zip is read for two
  * text entries and the manifest, and the bytes are hashed.
  *
- * The hashes are the only part of this that identifies a build rather than a claim, which is why
- * both are computed: marketplace APIs index files by digest, so a hash is what turns "a jar called
+ * The hashes are the only part of this that identifies a build rather than a claim, which is why all
+ * three are computed: marketplace APIs index files by digest and do not agree on which one — Modrinth
+ * answers to SHA-1, Hangar publishes SHA-256 — so a hash is what turns "a jar called
  * Essentials.jar" into "this exact published build, or something else entirely".
  */
 data class PluginJar(
@@ -75,6 +76,7 @@ data class PluginJar(
     val fileName: String,
     val sizeBytes: Long,
     val sha1: String,
+    val sha256: String,
     val sha512: String,
     val descriptor: PluginDescriptor?,
     /** Present when the jar carries neither descriptor: a library, a mod, or a stray download. */
@@ -106,7 +108,7 @@ data class PluginJar(
         )
 
         fun read(file: Path): PluginJar {
-            val (sha1, sha512) = digests(file)
+            val (sha1, sha256, sha512) = digests(file)
             val size = runCatching { Files.size(file) }.getOrDefault(-1L)
 
             var descriptor: PluginDescriptor? = null
@@ -163,6 +165,7 @@ data class PluginJar(
                 fileName = file.fileName.toString(),
                 sizeBytes = size,
                 sha1 = sha1,
+                sha256 = sha256,
                 sha512 = sha512,
                 descriptor = descriptor,
                 problem = problem,
@@ -172,9 +175,10 @@ data class PluginJar(
             )
         }
 
-        /** One pass over the file feeding both digests, because these jars run to tens of MB. */
-        private fun digests(file: Path): Pair<String, String> {
+        /** One pass over the file feeding every digest, because these jars run to tens of MB. */
+        private fun digests(file: Path): Triple<String, String, String> {
             val sha1 = MessageDigest.getInstance("SHA-1")
+            val sha256 = MessageDigest.getInstance("SHA-256")
             val sha512 = MessageDigest.getInstance("SHA-512")
             return try {
                 Files.newInputStream(file).use { stream ->
@@ -183,12 +187,13 @@ data class PluginJar(
                         val read = stream.read(buffer)
                         if (read <= 0) break
                         sha1.update(buffer, 0, read)
+                        sha256.update(buffer, 0, read)
                         sha512.update(buffer, 0, read)
                     }
                 }
-                hex(sha1.digest()) to hex(sha512.digest())
+                Triple(hex(sha1.digest()), hex(sha256.digest()), hex(sha512.digest()))
             } catch (_: Exception) {
-                "" to ""
+                Triple("", "", "")
             }
         }
 

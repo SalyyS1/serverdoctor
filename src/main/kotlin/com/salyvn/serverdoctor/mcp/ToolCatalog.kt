@@ -15,6 +15,7 @@ import com.salyvn.serverdoctor.flags.StartScriptReader
 import com.salyvn.serverdoctor.input.LogSource
 import com.salyvn.serverdoctor.log.LogTriage
 import com.salyvn.serverdoctor.perms.PermsAudit
+import com.salyvn.serverdoctor.plugins.HangarClient
 import com.salyvn.serverdoctor.plugins.ModrinthClient
 import com.salyvn.serverdoctor.plugins.PluginIndex
 import com.salyvn.serverdoctor.plugins.PluginsAudit
@@ -150,8 +151,9 @@ object ToolCatalog {
         override val description =
             "List what is installed and report the problems that exist between plugins: missing hard " +
                 "dependencies, two jars claiming one name, jars that are not plugins. Set online to " +
-                "true to additionally identify each file by hash against Modrinth and report " +
-                "provenance, newer versions and archived projects. online performs network requests."
+                "true to additionally identify each file by hash against Modrinth, fall back to " +
+                "Hangar by project name, and report provenance, newer versions and archived projects. " +
+                "online performs network requests."
         override val inputSchema = McpServer.objectSchema(
             required = listOf("path"),
             properties = mapOf(
@@ -170,8 +172,12 @@ object ToolCatalog {
             }
             val index = PluginIndex.read(directory)
             if (index.jars.isEmpty()) return ToolResult("No jars in $directory", isError = true)
-            val client = if (flag(arguments, "online")) ModrinthClient() else null
-            return render(listOf(PluginsAudit(client).analyse(index, directory.toString())))
+            val audit = if (flag(arguments, "online")) {
+                PluginsAudit(ModrinthClient(), HangarClient())
+            } else {
+                PluginsAudit()
+            }
+            return render(listOf(audit.analyse(index, directory.toString())))
         }
     }
 

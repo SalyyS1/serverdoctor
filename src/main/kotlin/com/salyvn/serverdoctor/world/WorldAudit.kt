@@ -4,6 +4,7 @@ import com.salyvn.serverdoctor.core.BuildInfo
 import com.salyvn.serverdoctor.core.FindingSink
 import com.salyvn.serverdoctor.core.ScanReport
 import java.nio.file.Files
+import java.nio.file.Path
 import java.util.Locale
 
 /**
@@ -27,6 +28,7 @@ class WorldAudit {
         val versions = mutableMapOf<String, Pair<Int, String?>>()
         var totalRegions = 0
         var totalBytes = 0L
+        var totalChunks = 0
 
         for (world in worlds) {
             val level = if (world.hasLevelDat) Nbt.read(world.levelDat) else null
@@ -80,13 +82,18 @@ class WorldAudit {
                 totalRegions++
                 val size = runCatching { Files.size(file) }.getOrDefault(0L)
                 totalBytes += size
+                val where = "${world.name}/${file.parent.fileName}/${file.fileName}"
+
                 if (size == 0L) {
                     sink.add(
                         rule = WorldRules.EMPTY_REGION_FILE,
-                        location = "${world.name}/${file.parent.fileName}/${file.fileName}",
+                        location = where,
                         detail = "The file is zero bytes.",
                     )
+                    continue
                 }
+
+                totalChunks += checkRegionHeader(file, where, sink)
             }
 
             for (pack in world.datapackFolders()) {
@@ -109,10 +116,43 @@ class WorldAudit {
 
         facts["region files"] = totalRegions.toString()
         facts["region size"] = String.format(Locale.ROOT, "%.1f MiB", totalBytes.toDouble() / (1L shl 20))
+        if (totalChunks > 0) facts["chunks stored"] = totalChunks.toString()
         val players = worlds.sumOf { it.playerDataCount() }
         if (players > 0) facts["player data"] = players.toString()
 
         return report(subject, sink, facts)
+    }
+
+    /**
+     * Reads one region file's header and reports what it cannot be. Returns the number of chunks the
+     * header names, which is a fact worth printing even when nothing is wrong with it.
+     */
+    private fun checkRegionHeader(file: Path, where: String, sink: FindingSink): Int {
+        val header = RegionFileHeader.read(file)
+
+        if (header.headerIncomplete) {
+            sink.add(
+                rule = WorldRules.REGION_HEADER_INCOMPLETE,
+                location = where,
+                detail = "The file is ${header.sizeBytes} bytes; the header alone is " +
+                    "${RegionFileHeader.SECTOR_BYTES * RegionFileHeader.HEADER_SECTORS}.",
+            )
+            return 0
+        }
+
+        if (!header.ok) return 0
+
+        if (header.problemCount > 0) {
+            sink.add(
+                rule = WorldRules.REGION_HEADER_POINTS_OUTSIDE,
+                location = where,
+                detail = "${header.problemCount} of ${header.chunkCount} locations in the header do not " +
+                    "point at a sector this file has.",
+                evidence = header.problems,
+            )
+        }
+
+        return header.chunkCount
     }
 
     /**
@@ -154,7 +194,7 @@ class WorldAudit {
         )
     }
 
-    private fun childNames(directory: java.nio.file.Path): List<String> =
+    private fun childNames(directory: Path): List<String> =
         runCatching {
             Files.list(directory).use { stream -> stream.limit(4).map { it.fileName.toString() }.toList() }
         }.getOrDefault(emptyList())

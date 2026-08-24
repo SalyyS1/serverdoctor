@@ -18,7 +18,7 @@ folder, offline, on the same box that produced it.
 | `config` | Is this server exposed or misconfigured — judged across `server.properties`, `bukkit.yml`, `spigot.yml` and the Paper configs together, not one file at a time? |
 | `flags` | Do the JVM flags in the start script do what whoever wrote them thought? |
 | `plugins` | What is installed, what is broken about the set, and where did each jar come from? |
-| `world` | Is every world intact, and were they all last saved by the same game version? |
+| `world` | Is every world intact, is every region file's chunk table pointing at sectors it has, and were the worlds all last saved by the same game version? |
 | `crash` | What did the crash report actually say, whose code was in the trace, and what did the server run with? |
 | `perms` | Who can get in, who is an operator, and does the server verify that anyone is who they claim? |
 | `diff` | What is different between two servers that are supposed to be the same? |
@@ -99,7 +99,7 @@ java -jar serverdoctor.jar config /srv/mc
 java -jar serverdoctor.jar flags /srv/mc --host-memory 8G
 java -jar serverdoctor.jar flags --command "java -Xms2G -Xmx8G -XX:+UseG1GC -jar paper.jar"
 
-# What is installed, and what a public index says each file is
+# What is installed, and what the public indexes say each file is
 java -jar serverdoctor.jar plugins /srv/mc/plugins --online
 
 # The worlds: level.dat, region files, datapacks, and whether the versions agree
@@ -294,12 +294,13 @@ an accident.
 
 Stated plainly, because a tool that reports nothing looks the same as a tool that found nothing.
 
-- It reads `level.dat` and the size of each region file. It does not decode chunks, entities, blocks or
-  player data, so it can tell you a region file is empty and never what is inside a full one.
+- It reads `level.dat` and, for each region file, the 8 KiB header that says where its chunks are. It
+  does not decompress or decode a single chunk, entity, block or player file, so it can tell you a
+  region file has lost the sectors its header points at and never what was in them.
 - It writes nothing. Every audit opens files read-only, and the only file it creates is the report you
   ask for with `-o`.
-- It does not open a network connection unless you pass `--online`, and then only to look plugin jars
-  up by their hash.
+- It does not open a network connection unless you pass `--online`, and then only to identify plugin
+  jars: by digest on Modrinth, and by project name on Hangar when a digest is not enough.
 - It does not judge tuning by taste. There is no rule saying your view distance is wrong, because the
   hardware it has to be right for is not in the folder.
 - It cannot verify a self-declaration. `folia-supported`, `api-version`, a plugin's own version — all
@@ -311,7 +312,9 @@ Stated plainly, because a tool that reports nothing looks the same as a tool tha
 - It does not read a timings or spark report. Tick-time analysis is a different problem and is not
   pretended at here.
 - `plugins --online` matching nothing is not a safety finding. Paid plugins, private builds and
-  pruned releases all fail to match for ordinary reasons.
+  pruned releases all fail to match for ordinary reasons. A Hangar answer is weaker than a Modrinth one
+  by construction — Hangar has no digest endpoint, so it has to be asked by name — and the findings say
+  which one answered.
 
 ## With an AI agent
 
@@ -347,7 +350,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-Eighty-seven rules across the eight audits. Every `source:` line names a file and line in Paper or
+Ninety-one rules across the eight audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 
