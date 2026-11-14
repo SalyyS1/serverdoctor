@@ -121,4 +121,96 @@ class ConfigAuditTest {
             directory.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `detects paper 26_3 config schema version mismatch and deprecated root keys`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-schema-test")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 28
+                timings:
+                  enabled: true
+                messages:
+                  kick:
+                    flying: "Flying is not enabled on this server"
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C019" }
+            assertTrue(findings.size >= 2, "expected C019 findings for old version and deprecated roots: $findings")
+            assertTrue(findings.any { it.detail.contains("28") })
+            assertTrue(findings.any { it.detail.contains("timings") })
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects network compression tuning hazards`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-compression-test")
+        try {
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            directory.resolve("server.properties").toFile().writeText(
+                """
+                online-mode=true
+                level-name=world
+                network-compression-threshold=32
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C020" }
+            assertEquals(1, findings.size)
+            assertTrue(findings.single().detail.contains("32"))
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects netty threads bottleneck when pinned to 1`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-netty-test")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            directory.resolve("spigot.yml").toFile().writeText(
+                """
+                settings:
+                  netty-threads: 1
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C021" }
+            assertEquals(1, findings.size)
+            assertTrue(findings.single().detail.contains("settings.netty-threads is 1"))
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects paper 26_3 item component validation hazards`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-item-comp-test")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 30
+                item-validation:
+                  resolve-selectors-in-books: true
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C022" }
+            assertEquals(1, findings.size)
+            assertTrue(findings.single().detail.contains("resolve-selectors-in-books is set to true"))
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
 }

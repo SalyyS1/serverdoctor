@@ -200,7 +200,7 @@ class PluginsAudit(
 
         if (lookup !is HangarLookup.NotAmongVersions) return lookup
 
-        val declared = jar.descriptor?.version
+        val declared = jar.descriptor.version
         val samePublishedVersion = declared != null && lookup.versionNames.any { it.equals(declared, true) }
 
         if (samePublishedVersion) {

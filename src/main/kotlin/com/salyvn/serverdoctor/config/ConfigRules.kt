@@ -233,6 +233,63 @@ object ConfigRules {
             "benchmarking on this host proved a specific pool count.",
     )
 
+    val PAPER_26_CONFIG_SCHEMA_VERSION = Rule(
+        id = "C019",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 configuration schema version mismatch or deprecated root key",
+        rationale = "Paper 26.3 modernizes global and per-world configuration schemas. Config files " +
+            "declaring legacy schema versions (< 30) or containing obsolete root sections (such as " +
+            "root timings:, legacy chunk-loading: instead of chunk-system:, or legacy messages:) " +
+            "trigger automated lossy schema rewriting or silent omission of modern defaults.",
+        provenance = "$GLOBAL (CURRENT_VERSION = 30+)",
+        fix = "Let Paper 26.3 regenerate config/paper-global.yml and config/paper-world-defaults.yml, " +
+            "or remove deprecated root sections and update the version key.",
+    )
+
+    val NETWORK_COMPRESSION_HAZARD = Rule(
+        id = "C020",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "network-compression-threshold in server.properties causes CPU exhaustion or bandwidth saturation",
+        rationale = "network-compression-threshold defines the packet byte size threshold before Netty " +
+            "applies deflate compression. Setting it between 0 and 64 forces Netty to attempt compression " +
+            "on tiny keepalive and movement packets, wasting CPU and often expanding payload size. " +
+            "Setting it to -1 on public servers sends all chunk data uncompressed, saturating uplink bandwidth.",
+        provenance = "server.properties key network-compression-threshold (vanilla default 256, Paper recommended 256-512)",
+        fix = "Set network-compression-threshold=256 (or 512 for high-throughput networks). Avoid " +
+            "values <= 64 or -1 on public internet servers.",
+    )
+
+    val NETTY_THREADS_BOTTLENECK = Rule(
+        id = "C021",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Spigot netty-threads setting is pinned to 1 or below, serialising network I/O",
+        rationale = "settings.netty-threads in spigot.yml controls the number of Netty EventLoop worker " +
+            "threads dedicated to handling player socket I/O, encryption, and packet compression. " +
+            "Setting netty-threads to 1 or below bottlenecks all connected players onto a single " +
+            "thread, causing packet queueing and latency spikes under concurrent player load.",
+        provenance = "$SPIGOT:182 (settings.netty-threads, default min(4, availableProcessors))",
+        fix = "Set settings.netty-threads to 4 or higher (or remove the override to let Paper " +
+            "automatically scale with CPU cores).",
+    )
+
+    val PAPER_26_ITEM_COMPONENT_VALIDATION = Rule(
+        id = "C022",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 item component validation or book profile checks are disabled",
+        rationale = "Minecraft 1.20.5+ through 26.3 transitioned item metadata to structured Data " +
+            "Components. In paper-global.yml, disabling item validation (such as setting " +
+            "item-validation.resolve-selectors-in-books: true or disabling max component size / " +
+            "display-name checks) allows malicious book NBT and complex nested component payloads " +
+            "to exploit server parser loops or crash clients.",
+        provenance = "$GLOBAL (item-validation section)",
+        fix = "Keep item-validation.resolve-selectors-in-books=false and leave item-validation " +
+            "limits at their default Paper 26.3 values.",
+    )
+
     val all: List<Rule> = listOf(
         OFFLINE_MODE_NO_PROXY,
         VELOCITY_SECRET_EMPTY,
@@ -252,5 +309,9 @@ object ConfigRules {
         ANTI_XRAY_ENABLED,
         SPARK_DISABLED,
         CHUNK_SYSTEM_BOTTLENECK,
+        PAPER_26_CONFIG_SCHEMA_VERSION,
+        NETWORK_COMPRESSION_HAZARD,
+        NETTY_THREADS_BOTTLENECK,
+        PAPER_26_ITEM_COMPONENT_VALIDATION,
     )
 }

@@ -45,6 +45,10 @@ class ConfigAudit {
         checkWorldDirectory(configs, sink, facts)
         checkAntiXray(configs, sink)
         checkChunkSystem(configs, sink)
+        checkPaper26Schema(configs, sink)
+        checkNetworkCompression(configs, sink)
+        checkNettyThreads(configs, sink)
+        checkItemComponentValidation(configs, sink)
 
         return ScanReport(
             tool = BuildInfo.NAME,
@@ -108,7 +112,7 @@ class ConfigAudit {
         if (onlineMode == false && !velocityEnabled && !bungeeEnabled) {
             sink.add(
                 rule = ConfigRules.OFFLINE_MODE_NO_PROXY,
-                location = "${configs.serverProperties?.path}:${configs.serverProperties?.get("online-mode")?.line}",
+                location = "${configs.serverProperties.path}:${configs.serverProperties.get("online-mode")?.line}",
                 detail = "online-mode=false, and neither proxies.velocity.enabled nor " +
                     "settings.bungeecord is on. Any client can claim any username.",
             )
@@ -117,7 +121,7 @@ class ConfigAudit {
         if (velocityEnabled && velocitySecret.isNullOrEmpty()) {
             sink.add(
                 rule = ConfigRules.VELOCITY_SECRET_EMPTY,
-                location = "${configs.paperGlobal?.label}:${configs.paperGlobal?.get("proxies.velocity.enabled")?.line}",
+                location = "${configs.paperGlobal.label}:${configs.paperGlobal.get("proxies.velocity.enabled")?.line}",
                 detail = "proxies.velocity.enabled is true and proxies.velocity.secret is empty.",
             )
         }
@@ -125,7 +129,7 @@ class ConfigAudit {
         if (velocityEnabled && bungeeEnabled) {
             sink.add(
                 rule = ConfigRules.TWO_FORWARDING_SCHEMES,
-                location = "${configs.paperGlobal?.label} + ${configs.spigot?.label}",
+                location = "${configs.paperGlobal.label} + ${configs.spigot.label}",
                 detail = "Velocity modern forwarding and BungeeCord forwarding are both enabled.",
             )
         }
@@ -337,6 +341,91 @@ class ConfigAudit {
                     detail = "chunk-system.worker-threads is $workers (default is -1), serialising Moonrise chunk generation and lighting.",
                 )
             }
+        }
+    }
+
+    private fun checkPaper26Schema(configs: ServerConfigSet, sink: FindingSink) {
+        val candidates = listOfNotNull(configs.paperGlobal, configs.paperWorldDefaults)
+        val legacyRoots = listOf("timings", "chunk-loading", "messages")
+        for (file in candidates) {
+            if (!file.ok) continue
+            val ver = file.int("version") ?: file.int("_version")
+            if (ver != null && ver < 30) {
+                sink.add(
+                    rule = ConfigRules.PAPER_26_CONFIG_SCHEMA_VERSION,
+                    location = "${file.label}:${file["version"]?.line ?: file["_version"]?.line ?: 1}",
+                    detail = "Configuration schema version is $ver (Paper 26.3 expects version 30 or higher); older schemas risk unmigrated config defaults.",
+                )
+            }
+            for (rootKey in legacyRoots) {
+                if (file.has(rootKey)) {
+                    val entry = file.under(rootKey).firstOrNull() ?: file[rootKey]
+                    sink.add(
+                        rule = ConfigRules.PAPER_26_CONFIG_SCHEMA_VERSION,
+                        location = "${file.label}:${entry?.line ?: 1}",
+                        detail = "Legacy root section '$rootKey' is deprecated in Paper 26.3; use 'chunk-system' and bundled Spark instead.",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun checkNetworkCompression(configs: ServerConfigSet, sink: FindingSink) {
+        val props = configs.serverProperties ?: return
+        val entry = props["network-compression-threshold"] ?: return
+        val threshold = entry.value.toIntOrNull() ?: return
+        val online = configs.serverProperties.bool("online-mode") != false
+        if (threshold in 0..64) {
+            sink.add(
+                rule = ConfigRules.NETWORK_COMPRESSION_HAZARD,
+                location = "${props.path}:${entry.line}",
+                detail = "network-compression-threshold is $threshold. Compressing packets <= 64 bytes wastes CPU on small packets with negligible compression gains.",
+            )
+        } else if (threshold == -1 && online) {
+            sink.add(
+                rule = ConfigRules.NETWORK_COMPRESSION_HAZARD,
+                location = "${props.path}:${entry.line}",
+                detail = "network-compression-threshold is -1 (compression disabled) on an online-mode server. Chunk and entity bursts may saturate network bandwidth.",
+            )
+        } else if (threshold > 1024) {
+            sink.add(
+                rule = ConfigRules.NETWORK_COMPRESSION_HAZARD,
+                location = "${props.path}:${entry.line}",
+                detail = "network-compression-threshold is $threshold (> 1024). Packets up to ${threshold} bytes are sent uncompressed, increasing socket buffer strain.",
+            )
+        }
+    }
+
+    private fun checkNettyThreads(configs: ServerConfigSet, sink: FindingSink) {
+        val spigot = configs.spigot ?: return
+        val entry = spigot["settings.netty-threads"] ?: return
+        val threads = entry.value.toIntOrNull() ?: return
+        if (threads <= 1) {
+            sink.add(
+                rule = ConfigRules.NETTY_THREADS_BOTTLENECK,
+                location = "${spigot.label}:${entry.line}",
+                detail = "settings.netty-threads is $threads. Pinning Netty to 1 thread serialises packet encode/decode and socket flushes across all connected players.",
+            )
+        }
+    }
+
+    private fun checkItemComponentValidation(configs: ServerConfigSet, sink: FindingSink) {
+        val global = configs.paperGlobal ?: return
+        val bookSelectors = global.bool("item-validation.resolve-selectors-in-books")
+        if (bookSelectors == true) {
+            sink.add(
+                rule = ConfigRules.PAPER_26_ITEM_COMPONENT_VALIDATION,
+                location = "${global.label}:${global["item-validation.resolve-selectors-in-books"]?.line ?: 1}",
+                detail = "item-validation.resolve-selectors-in-books is set to true. Resolving target selectors in books enables malicious book NBT payloads to stall tick threads.",
+            )
+        }
+        val maxComponentSize = global.int("item-validation.max-component-size")
+        if (maxComponentSize != null && (maxComponentSize <= 0 || maxComponentSize > 67108864)) {
+            sink.add(
+                rule = ConfigRules.PAPER_26_ITEM_COMPONENT_VALIDATION,
+                location = "${global.label}:${global["item-validation.max-component-size"]?.line ?: 1}",
+                detail = "item-validation.max-component-size is $maxComponentSize. Disabling or over-allocating component validation exposes memory to oversized component payload exploits.",
+            )
         }
     }
 

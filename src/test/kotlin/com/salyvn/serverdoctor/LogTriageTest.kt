@@ -205,6 +205,34 @@ class LogTriageTest {
         assertTrue(syncFinding.detail.contains("com.example.rtp"), syncFinding.detail)
     }
 
+    @Test
+    fun `detects spark slow tick duration spikes and exported flamegraphs`() {
+        val sparkLog = """
+            [19:15:30] [Server thread/WARN]: [spark] Slow tick detected: 482ms (threshold: 100ms)
+            [19:15:32] [Server thread/INFO]: [spark] Flame graph exported to https://spark.lucko.me/abcXYZ123
+        """.trimIndent()
+        val triaged = triageText(sparkLog)
+        val ids = triaged.findings.map { it.ruleId }.toSet()
+        assertTrue("L023" in ids, "expected spark hotspot L023 in $ids")
+        val finding = triaged.findings.first { it.ruleId == "L023" }
+        assertTrue(finding.detail.contains("spark.lucko.me") || finding.detail.contains("482ms"), finding.detail)
+    }
+
+    @Test
+    fun `detects netty packet sizing overflows and direct memory exhaustion`() {
+        val nettyLog = """
+            [20:01:15] [Netty Epoll Server IO #1/ERROR]: io.netty.handler.codec.EncoderException: Packet too large: 2491823 bytes
+            	at io.netty.handler.codec.MessageToByteEncoder.write(MessageToByteEncoder.java:107)
+            	at com.example.customprotocol.PacketInterceptor.encode(PacketInterceptor.java:45)
+            [20:02:10] [Netty Epoll Server IO #2/ERROR]: io.netty.util.internal.OutOfDirectMemoryError: failed to allocate 16777216 byte(s) of direct memory
+        """.trimIndent()
+        val triaged = triageText(nettyLog)
+        val ids = triaged.findings.map { it.ruleId }.toSet()
+        assertTrue("L024" in ids, "expected netty packet contention L024 in $ids")
+        val encoderFinding = triaged.findings.first { it.ruleId == "L024" && it.detail.contains("Packet") }
+        assertTrue(encoderFinding.detail.contains("com.example.customprotocol") || encoderFinding.detail.contains("Packet payload"), encoderFinding.detail)
+    }
+
     private fun triageText(text: String): com.salyvn.serverdoctor.core.ScanReport {
         val file = kotlin.io.path.createTempFile(suffix = ".log")
         file.toFile().writeText(text + "\n")

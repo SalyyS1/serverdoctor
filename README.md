@@ -417,7 +417,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-One hundred rules across the eight audits. Every `source:` line names a file and line in Paper or
+106 rules across the eight audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 

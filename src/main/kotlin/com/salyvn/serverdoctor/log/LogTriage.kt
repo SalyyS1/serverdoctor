@@ -129,7 +129,7 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
             facts["covers"] = if (lastTimestamp != null && lastTimestamp != firstTimestamp) {
                 "$firstTimestamp to $lastTimestamp"
             } else {
-                firstTimestamp!!
+                firstTimestamp
             }
         }
         if (!plugins.isEmpty) facts["plugins indexed"] = plugins.jars.count { it.isPlugin }.toString()

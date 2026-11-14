@@ -303,6 +303,35 @@ object LogRules {
             "oversized chunk coordinates for excessive block-entity or book NBT data.",
     )
 
+    val SPARK_JFR_HOTSPOT = Rule(
+        id = "L023",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Spark or JFR profiler detected severe tick duration spike or CPU hotspot",
+        rationale = "Spark tick monitoring and JFR execution profiling identify severe tick duration " +
+            "spikes (ticks exceeding 100ms or 250ms) or hot call-paths where a plugin or native " +
+            "method dominates CPU time. Exporting or analyzing the flamegraph pinpoints the blocking " +
+            "method without guessing.",
+        provenance = "lucko/spark spark-common/src/main/java/me/lucko/spark/common/monitor/TickMonitor.java and JDK Flight Recorder (JFR)",
+        fix = "Open the reported spark.lucko.me profile URL or inspect the top frames in the " +
+            "flamegraph/sampler breakdown to eliminate blocking operations, slow database calls, " +
+            "or unindexed lookups from the tick thread.",
+    )
+
+    val NETTY_PACKET_CONTENTION = Rule(
+        id = "L024",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Netty networking pipeline packet compression failure or direct memory leak",
+        rationale = "Netty worker threads handle client packet encode, decode, and socket flushes. " +
+            "Netty direct-memory exhaustion (OutOfDirectMemoryError), oversized packet encoder exceptions " +
+            "(EncoderException: Packet too large), or connection flush drops cause mass player disconnects, " +
+            "ghost inventories, and network stall cascades.",
+        provenance = "io.netty.handler.codec.EncoderException, io.netty.util.internal.OutOfDirectMemoryError, and net.minecraft.network.Connection",
+        fix = "Tune network-compression-threshold in server.properties, verify JVM direct memory bounds " +
+            "(-XX:MaxDirectMemorySize), and audit custom packet-listener plugins for unreleased ByteBuf allocations.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -326,5 +355,7 @@ object LogRules {
         GC_HEAP_PRESSURE,
         SYNC_CHUNK_LOAD,
         CHUNK_IO_BOTTLENECK,
+        SPARK_JFR_HOTSPOT,
+        NETTY_PACKET_CONTENTION,
     )
 }

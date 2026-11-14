@@ -302,7 +302,7 @@
       </div>
       <nav class="nav-links">
         <a href="https://github.com/SalyyS1/serverdoctor">GitHub Repository</a>
-        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.3.0</a>
+        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.4.0</a>
         <a href="https://salyys1.github.io/foliascan/">FoliaScan</a>
         <a href="https://salyys1.github.io/pluginscope/">PluginScope</a>
         <a href="https://salyys1.github.io/minecraftkit/">MinecraftKit</a>
@@ -318,6 +318,7 @@
           <input id="fileInput" type="file" multiple hidden>
         </div>
         <div class="btn-row">
+          <button type="button" data-preset="spark">Sample: Spark Lag + Netty + Paper 26.3</button>
           <button type="button" data-preset="folia">Sample: Folia Stall + ZGC Stall</button>
           <button type="button" data-preset="paper">Sample: Paper Hang + Full GC + Config</button>
           <button type="button" data-preset="clean">Sample: Healthy Velocity Backend</button>
@@ -349,7 +350,7 @@
     <div class="findings" id="findingsList"></div>
 
     <footer>
-      <div>ServerDoctor v0.3.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
+      <div>ServerDoctor v0.4.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
       <div>Companion tools: <a href="https://github.com/SalyyS1/foliascan">foliascan</a> | <a href="https://github.com/SalyyS1/pluginscope">pluginscope</a> | <a href="https://github.com/SalyyS1/minecraftkit">minecraftkit</a></div>
     </footer>
   </div>
@@ -359,6 +360,31 @@
       "use strict";
 
       const PRESETS = {
+        spark: [
+          {
+            name: "logs/latest.log",
+            text: [
+              "[19:15:30] [Server thread/WARN]: [spark] Slow tick detected: 482ms (threshold: 100ms)",
+              "[19:15:32] [Server thread/INFO]: [spark] Flame graph exported to https://spark.lucko.me/abcXYZ123",
+              "[20:01:15] [Netty Epoll Server IO #1/ERROR]: io.netty.handler.codec.EncoderException: Packet too large: 2491823 bytes",
+              "\tat io.netty.handler.codec.MessageToByteEncoder.write(MessageToByteEncoder.java:107)",
+              "\tat com.example.customprotocol.PacketInterceptor.encode(PacketInterceptor.java:45)",
+              "[20:02:10] [Netty Epoll Server IO #2/ERROR]: io.netty.util.internal.OutOfDirectMemoryError: failed to allocate 16777216 byte(s) of direct memory"
+            ].join("\n")
+          },
+          {
+            name: "server.properties",
+            text: "online-mode=true\nnetwork-compression-threshold=32\nlevel-name=world\n"
+          },
+          {
+            name: "spigot.yml",
+            text: "settings:\n  netty-threads: 1\n"
+          },
+          {
+            name: "config/paper-global.yml",
+            text: "version: 28\ntimings:\n  enabled: true\nitem-validation:\n  resolve-selectors-in-books: true\n"
+          }
+        ],
         folia: [
           {
             name: "logs/latest.log",
@@ -448,6 +474,8 @@
         L020: { sev: "critical", title: "Garbage collector hit severe heap pressure, Full GC, or allocation stall", fix: "Inspect heap retention with spark or increase -Xmx so post-GC live occupancy stays below 75%.", prov: "OpenJDK HotSpot G1CollectedHeap & ZGC ZAllocationStall" },
         L021: { sev: "warning", title: "Synchronous chunk load or generation blocked a tick thread", fix: "Replace synchronous getChunkAt / Location.getChunk calls with getChunkAtAsync and pre-generate worlds.", prov: "PaperMC/Paper SyncLoadFinder.java" },
         L022: { sev: "critical", title: "Paper chunk system I/O error, oversized chunk, or save queue stall", fix: "Verify disk free space and storage latency, and inspect oversized chunk coordinates for NBT bloat.", prov: "PaperMC/Paper MoonriseRegionFileIO" },
+        L023: { sev: "warning", title: "Spark or JFR profiler detected severe tick duration spike or CPU hotspot", fix: "Open the exported spark.lucko.me viewer URL or inspect top flamegraph frames to optimize blocking calls.", prov: "lucko/spark TickMonitor.java & JFR execution sampler" },
+        L024: { sev: "critical", title: "Netty networking pipeline packet compression failure or direct memory leak", fix: "Tune network-compression-threshold in server.properties and verify -XX:MaxDirectMemorySize.", prov: "io.netty.handler.codec.EncoderException & OutOfDirectMemoryError" },
         F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
         F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
         F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
@@ -458,6 +486,10 @@
         C006: { sev: "critical", title: "RCON is enabled with no password", fix: "Set a strong rcon.password or disable enable-rcon.", prov: "server.properties enable-rcon / rcon.password" },
         C007: { sev: "warning", title: "Simulation distance is larger than view distance", fix: "Lower simulation-distance to view-distance or less.", prov: "server.properties view-distance / simulation-distance" },
         C018: { sev: "warning", title: "Paper chunk-system threads or rate limits create an I/O bottleneck", fix: "Reset chunk-system.io-threads and chunk-system.worker-threads to -1.", prov: "PaperMC/Paper GlobalConfiguration.java (ChunkSystem)" },
+        C019: { sev: "warning", title: "Paper 26.3 configuration schema version mismatch or deprecated root key", fix: "Regenerate config/paper-global.yml or remove deprecated timings / chunk-loading root keys.", prov: "PaperMC/Paper GlobalConfiguration.java (version 30+)" },
+        C020: { sev: "warning", title: "network-compression-threshold in server.properties causes CPU exhaustion or bandwidth saturation", fix: "Set network-compression-threshold=256 (avoid <= 64 or -1 on public internet servers).", prov: "server.properties network-compression-threshold" },
+        C021: { sev: "warning", title: "Spigot netty-threads setting is pinned to 1 or below, serialising network I/O", fix: "Set settings.netty-threads to 4 or higher (or remove override for automatic core scaling).", prov: "SpigotConfig.java settings.netty-threads" },
+        C022: { sev: "warning", title: "Paper 26.3 item component validation or book profile checks are disabled", fix: "Keep item-validation.resolve-selectors-in-books=false and leave item limits at defaults.", prov: "PaperMC/Paper GlobalConfiguration.java (item-validation)" },
         X001: { sev: "critical", title: "The server crashed", fix: "Start from the outermost plugin frame in the crash stack trace.", prov: "Minecraft Crash Report header & stacktrace" }
       };
 
@@ -706,6 +738,23 @@
           if (/Failed to (?:save|load) chunk|Saving oversized chunk|Oversized chunk|MoonriseRegionFileIO/.test(full)) {
             addGrouped("L022", "chunk-io", lineNo, line.trim(), block.slice(0, 3));
             i = j - 1;
+            continue;
+          }
+
+          const sparkMatch = line.match(/(?:Slow tick detected|The server is lagging! Tick duration|Long tick detected)[:\s]+(\d+(?:\.\d+)?)\s*ms|(?:Flame\s*graph|Profile)\s*(?:exported|uploaded)\s*(?:to\s*)?(https?:\/\/spark\.lucko\.me\/\S+)/i);
+          if (sparkMatch || (full.includes("[spark]") && /lagging|TPS|flame/i.test(full))) {
+            const url = sparkMatch && sparkMatch[2];
+            const ms = sparkMatch && sparkMatch[1];
+            const msg = url ? ("Spark profiler flamegraph exported to " + url + ".") : (ms ? ("Spark detected slow tick duration of " + ms + " ms.") : "Spark profiler captured tick latency spike or CPU hotspot.");
+            addGrouped("L023", url || (ms ? ("spark-" + ms) : "spark-hotspot"), lineNo, msg + (blame ? (" Attributed to " + blame + ".") : ""), [line.trim()]);
+            continue;
+          }
+          if ((full.includes("io.netty") || /Netty/i.test(line)) && (/EncoderException|DecoderException|Packet too large|Packet was larger|Direct buffer memory|OutOfDirectMemoryError/i.test(full))) {
+            const isOom = /OutOfDirectMemoryError|Direct buffer memory/i.test(full);
+            const msg = isOom ? "Netty direct memory exhausted (OutOfDirectMemoryError)." : "Netty networking pipeline packet encoding or size overflow.";
+            addGrouped("L024", isOom ? "netty-direct-oom" : "netty-packet-overflow", lineNo, msg + (blame ? (" Involving " + blame + ".") : ""), block.slice(0, 3));
+            i = j - 1;
+            continue;
           }
         }
 
@@ -792,6 +841,37 @@
             const wkT = paperGlobal["chunk-system.worker-threads"];
             if (wkT && (Number(wkT.value) === 0 || Number(wkT.value) === 1 || Number(wkT.value) < -1)) {
               findings.push(makeFinding("C018", paperName + ":" + wkT.line, "chunk-system.worker-threads is " + wkT.value + " (default -1), serialising Moonrise chunk workers.", []));
+            }
+            const ver = paperGlobal["version"] ? Number(paperGlobal["version"].value) : (paperGlobal["_version"] ? Number(paperGlobal["_version"].value) : null);
+            if (ver !== null && ver < 30) {
+              const ln = (paperGlobal["version"] || paperGlobal["_version"]).line;
+              findings.push(makeFinding("C019", paperName + ":" + ln, "Paper configuration schema version is " + ver + " (Paper 26.3 expects version 30 or higher).", []));
+            }
+            for (const rk of ["timings", "chunk-loading", "messages"]) {
+              const ent = Object.entries(paperGlobal).find(([k]) => k === rk || k.startsWith(rk + "."));
+              if (ent) {
+                findings.push(makeFinding("C019", paperName + ":" + ent[1].line, "Legacy root section '" + rk + "' is deprecated in Paper 26.3; use 'chunk-system' and bundled Spark.", []));
+              }
+            }
+            if (paperGlobal["item-validation.resolve-selectors-in-books"] && paperGlobal["item-validation.resolve-selectors-in-books"].value === "true") {
+              const ln = paperGlobal["item-validation.resolve-selectors-in-books"].line;
+              findings.push(makeFinding("C022", paperName + ":" + ln, "item-validation.resolve-selectors-in-books is true, allowing malicious book NBT payloads to trigger selector stalls.", []));
+            }
+          }
+          if (props && props["network-compression-threshold"]) {
+            const nct = Number(props["network-compression-threshold"].value);
+            if (nct >= 0 && nct <= 64) {
+              findings.push(makeFinding("C020", propsName + ":" + props["network-compression-threshold"].line, "network-compression-threshold=" + nct + " causes CPU waste compressing tiny packets <= 64 bytes.", []));
+            } else if (nct === -1 && online) {
+              findings.push(makeFinding("C020", propsName + ":" + props["network-compression-threshold"].line, "network-compression-threshold=-1 sends all packet data uncompressed on an online server.", []));
+            } else if (nct > 1024) {
+              findings.push(makeFinding("C020", propsName + ":" + props["network-compression-threshold"].line, "network-compression-threshold=" + nct + " (> 1024) strains socket buffers with large uncompressed packets.", []));
+            }
+          }
+          if (spigot && spigot["settings.netty-threads"]) {
+            const nt = Number(spigot["settings.netty-threads"].value);
+            if (nt <= 1) {
+              findings.push(makeFinding("C021", "spigot.yml:" + spigot["settings.netty-threads"].line, "settings.netty-threads=" + nt + " bottlenecks all connected player network I/O onto a single thread.", []));
             }
           }
         }
@@ -948,7 +1028,7 @@
         downloadBlob("serverdoctor-report.json", JSON.stringify({
           schema: 1,
           tool: "serverdoctor-web",
-          toolVersion: "0.3.0",
+          toolVersion: "0.4.0",
           facts: lastState.facts,
           findings: lastState.findings
         }, null, 2));
@@ -963,7 +1043,7 @@
             tool: {
               driver: {
                 name: "ServerDoctor",
-                version: "0.3.0",
+                version: "0.4.0",
                 informationUri: "https://github.com/SalyyS1/serverdoctor",
                 rules: ruleIds.map(id => ({
                   id,

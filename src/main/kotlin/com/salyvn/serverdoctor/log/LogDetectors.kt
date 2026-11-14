@@ -41,6 +41,14 @@ object LogDetectors {
     )
     private val ZGC_STALL = Regex("""Allocation Stall\s+\(([^)]+)\)\s+(\d+(?:[.,]\d+)?)ms""")
     private val CHUNK_COORDS = Regex("""\((-?\d+,\s*-?\d+)\)""")
+    private val SPARK_SLOW_TICK = Regex(
+        """(?:(?:Slow tick detected|The server is lagging! Tick duration|Long tick detected|Server tick exceeded)[:\s]+(\d+(?:\.\d+)?)\s*ms|(?:Flame\s*graph|Profile)\s*(?:exported|uploaded)\s*(?:to\s*)?(https?://spark\.lucko\.me/\S+))""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val NETTY_PACKET_OVERFLOW = Regex(
+        """(?:Packet too large|Packet was larger than I expected|String too big)""",
+        RegexOption.IGNORE_CASE,
+    )
 
     /** Class file major 52 is Java 8, and each release adds one, so the release is major - 44. */
     private const val JAVA_CLASS_FILE_OFFSET = 44
@@ -406,6 +414,73 @@ object LogDetectors {
                     if (blame != null) append(" (involving $blame)")
                 },
                 evidence = event.frames.take(4).map { it.raw },
+            )
+        },
+
+        Signature(LogRules.SPARK_JFR_HOTSPOT) { event, plugins ->
+            val text = event.fullText
+            val match = SPARK_SLOW_TICK.find(text)
+            val isSparkOrJfr = match != null ||
+                (text.contains("[spark]", ignoreCase = true) && (text.contains("lagging", ignoreCase = true) || text.contains("TPS", ignoreCase = true) || text.contains("flame", ignoreCase = true))) ||
+                (text.contains("JFR", ignoreCase = true) && text.contains("Execution sample", ignoreCase = true))
+            if (!isSparkOrJfr) return@Signature null
+
+            val blame = LogTriage.attribute(event, plugins)
+            val url = match?.groupValues?.get(2)?.takeIf { it.isNotBlank() }
+                ?: Regex("""https?://spark\.lucko\.me/\S+""").find(text)?.value
+            val duration = match?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+                ?: Regex("""(?:Slow tick detected|Tick duration)[:\s]+(\d+(?:\.\d+)?)\s*ms""").find(text)?.groupValues?.get(1)
+
+            val disc = url ?: (duration?.let { "spark-slow-tick-${it}ms" } ?: "spark-hotspot")
+            DetectorMatch(
+                discriminator = disc,
+                detail = buildString {
+                    if (url != null) {
+                        append("Spark profiler flamegraph exported to $url")
+                        duration?.let { append(" (slow tick: ${it}ms)") }
+                    } else if (duration != null) {
+                        append("Spark profiler detected slow tick duration of ${duration}ms")
+                    } else {
+                        append("Spark or JFR profiler captured an execution hotspot or tick latency spike")
+                    }
+                    blame?.let { append(", attributed to $it") }
+                    append('.')
+                },
+                evidence = listOfNotNull(url?.let { "Flamegraph: $it" }, duration?.let { "Tick duration: ${it}ms" })
+                    .ifEmpty { event.frames.take(4).map { it.raw } }
+                    .ifEmpty { listOf(event.message.trim()) },
+            )
+        },
+
+        Signature(LogRules.NETTY_PACKET_CONTENTION) { event, plugins ->
+            val full = event.fullText
+            val msg = event.message
+            val isNetty = full.contains("io.netty") || event.thread?.contains("Netty", ignoreCase = true) == true
+            val hasEncoderExc = full.contains("EncoderException") || full.contains("DecoderException")
+            val hasOom = full.contains("OutOfDirectMemoryError") || (isNetty && full.contains("Direct buffer memory"))
+            val hasOverflow = NETTY_PACKET_OVERFLOW.containsMatchIn(full)
+
+            if (!(isNetty && (hasEncoderExc || hasOom || hasOverflow))) return@Signature null
+
+            val blame = LogTriage.attribute(event, plugins)
+            val kind = when {
+                hasOom -> "netty-direct-memory-exhaustion"
+                hasOverflow -> "netty-packet-too-large"
+                full.contains("DecoderException") -> "netty-decoder-exception"
+                else -> "netty-encoder-exception"
+            }
+            DetectorMatch(
+                discriminator = kind,
+                detail = buildString {
+                    append("Netty network pipeline exception: ")
+                    when {
+                        hasOom -> append("Direct memory exhausted (OutOfDirectMemoryError).")
+                        hasOverflow -> append("Packet payload exceeded Netty compression/size limit.")
+                        else -> append(msg.trim().take(120)).append('.')
+                    }
+                    blame?.let { append(" Involves $it.") }
+                },
+                evidence = event.frames.take(4).map { it.raw }.ifEmpty { listOf(msg.trim()) },
             )
         },
     )
