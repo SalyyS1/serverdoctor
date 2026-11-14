@@ -24,7 +24,7 @@ class LogSource private constructor(
 
     /**
      * Applies [action] to every line, in order. Returns the number of lines read, which is not the
-     * number of lines in the file when the cap is hit — [truncated] says which happened.
+     * number of lines in the file when the cap is hit - [truncated] says which happened.
      */
     fun forEachLine(limit: Int = MAX_LINES, action: (LogLine) -> Unit): Int {
         var count = 0

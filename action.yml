@@ -1,0 +1,263 @@
+name: "ServerDoctor"
+description: "Offline diagnostic gate for Minecraft Paper, Folia, and Spigot server configs, logs, JVM flags, and worlds."
+author: "SalyVn"
+
+branding:
+  icon: "activity"
+  color: "green"
+
+inputs:
+  target:
+    description: "Server directory, log file, crash report, or config path to audit."
+    required: true
+  mode:
+    description: "ServerDoctor subcommand to run: scan, log, config, flags, plugins, world, crash, or perms."
+    required: false
+    default: "scan"
+  fail-on:
+    description: "Lowest severity that causes a non-zero exit code: blocker, critical, warning, info, or never."
+    required: false
+    default: "critical"
+  host-memory:
+    description: "Optional host RAM size (for example: 16G) passed to scan or flags."
+    required: false
+    default: ""
+  sarif-file:
+    description: "Optional output file path for an OASIS SARIF 2.1.0 report."
+    required: false
+    default: ""
+  version:
+    description: "ServerDoctor release version to download (for example: 0.3.0)."
+    required: false
+    default: "0.3.0"
+
+outputs:
+  exit-code:
+    description: "Exit code returned by ServerDoctor for the configured fail-on threshold."
+    value: ${{ steps.audit.outputs.exit-code }}
+  json-report:
+    description: "Path to the generated machine-readable ServerDoctor JSON report."
+    value: ${{ steps.audit.outputs.json-report }}
+  sarif-file:
+    description: "Path to the generated SARIF 2.1.0 report when sarif-file is configured."
+    value: ${{ steps.audit.outputs.sarif-file }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Cache ServerDoctor CLI JAR
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/serverdoctor
+        key: serverdoctor-cli-${{ runner.os }}-${{ inputs.version }}
+
+    - name: Resolve ServerDoctor CLI JAR and Java 21+ runtime
+      id: setup
+      shell: bash
+      env:
+        INPUT_VERSION: ${{ inputs.version }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+
+        resolve_java21() {
+          local candidate major
+          for candidate in \
+            "$(command -v java 2>/dev/null || true)" \
+            "${JAVA_HOME_21_X64:-}/bin/java" \
+            "${JAVA_HOME_21_ARM64:-}/bin/java" \
+            "${JAVA_HOME:-}/bin/java"; do
+            if [[ -n "$candidate" && -x "$candidate" ]]; then
+              major=$("$candidate" -version 2>&1 | sed -n 's/.*version "\([0-9][0-9]*\).*/\1/p' | head -n 1)
+              if [[ -n "$major" && "$major" -ge 21 ]]; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            fi
+          done
+          return 1
+        }
+
+        JAVA_BIN="$(resolve_java21 || true)"
+        if [[ -z "$JAVA_BIN" ]]; then
+          echo "::error::ServerDoctor requires Java 21 or newer. Add actions/setup-java@v4 with java-version: '21'." >&2
+          exit 2
+        fi
+
+        VERSION="${INPUT_VERSION#v}"
+        if [[ ! "$VERSION" =~ ^[0-9A-Za-z._-]+$ ]]; then
+          echo "::error::Invalid ServerDoctor version '${INPUT_VERSION}'." >&2
+          exit 2
+        fi
+
+        CACHE_DIR="${HOME}/.cache/serverdoctor"
+        mkdir -p "$CACHE_DIR"
+        CACHED_JAR="${CACHE_DIR}/serverdoctor-${VERSION}.jar"
+
+        is_valid_zip() {
+          local file="$1"
+          [[ -s "$file" ]] || return 1
+          local magic
+          magic="$(head -c 4 "$file" | od -An -tx1 | tr -d ' \n')"
+          [[ "$magic" == "504b0304" ]]
+        }
+
+        if ! is_valid_zip "$CACHED_JAR"; then
+          rm -f "$CACHED_JAR"
+          DOWNLOAD_URL="https://github.com/SalyyS1/serverdoctor/releases/download/v${VERSION}/serverdoctor-${VERSION}.jar"
+          echo "Downloading ServerDoctor v${VERSION} from ${DOWNLOAD_URL} ..."
+          TMP_JAR="${CACHED_JAR}.tmp.$$"
+          if curl -fsSL --retry 3 --connect-timeout 15 -o "$TMP_JAR" "$DOWNLOAD_URL" && is_valid_zip "$TMP_JAR"; then
+            mv "$TMP_JAR" "$CACHED_JAR"
+          else
+            rm -f "$TMP_JAR"
+            if [[ -f "${ACTION_PATH}/gradlew" ]]; then
+              echo "Release download unavailable; building ServerDoctor locally from action checkout ..."
+              JAVA_HOME_FOR_BUILD="$(cd "$(dirname "$JAVA_BIN")/.." && pwd)"
+              (
+                cd "$ACTION_PATH"
+                chmod +x ./gradlew
+                JAVA_HOME="$JAVA_HOME_FOR_BUILD" ./gradlew shadowJar --no-daemon
+              )
+              BUILT_JAR="$(find "${ACTION_PATH}/build/libs" -maxdepth 1 -type f -name 'serverdoctor-*.jar' ! -name '*-thin.jar' | sort | head -n 1)"
+              if [[ -z "$BUILT_JAR" ]] || ! is_valid_zip "$BUILT_JAR"; then
+                echo "::error::Fallback Gradle build did not produce a valid ServerDoctor JAR." >&2
+                exit 2
+              fi
+              cp "$BUILT_JAR" "$CACHED_JAR"
+            else
+              echo "::error::Failed to download ServerDoctor v${VERSION} from ${DOWNLOAD_URL}." >&2
+              exit 2
+            fi
+          fi
+        fi
+
+        echo "java-bin=${JAVA_BIN}" >> "$GITHUB_OUTPUT"
+        echo "jar-path=${CACHED_JAR}" >> "$GITHUB_OUTPUT"
+
+    - name: Run ServerDoctor and publish diagnostic summary
+      id: audit
+      shell: bash
+      env:
+        JAVA_BIN: ${{ steps.setup.outputs.java-bin }}
+        SERVERDOCTOR_JAR: ${{ steps.setup.outputs.jar-path }}
+        INPUT_TARGET: ${{ inputs.target }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_FAIL_ON: ${{ inputs.fail-on }}
+        INPUT_HOST_MEMORY: ${{ inputs.host-memory }}
+        INPUT_SARIF_FILE: ${{ inputs.sarif-file }}
+      run: |
+        set -euo pipefail
+
+        PY_BIN="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+        if [[ -z "$PY_BIN" ]]; then
+          echo "::error::python3 or python is required to render the GitHub Step Summary." >&2
+          exit 2
+        fi
+
+        "$PY_BIN" - <<'PY'
+        import json
+        import os
+        import subprocess
+        import sys
+        from pathlib import Path
+
+        java_bin = os.environ["JAVA_BIN"]
+        jar_path = os.environ["SERVERDOCTOR_JAR"]
+        target = os.environ.get("INPUT_TARGET", "").strip()
+        mode = (os.environ.get("INPUT_MODE", "scan").strip() or "scan").lower()
+        fail_on = (os.environ.get("INPUT_FAIL_ON", "critical").strip() or "critical").lower()
+        host_memory = os.environ.get("INPUT_HOST_MEMORY", "").strip()
+        sarif_file = os.environ.get("INPUT_SARIF_FILE", "").strip()
+
+        valid_modes = {"scan", "log", "config", "flags", "plugins", "world", "crash", "perms"}
+        if mode not in valid_modes:
+            print(f"::error::Invalid mode '{mode}'. Expected one of {sorted(valid_modes)}.", file=sys.stderr)
+            sys.exit(2)
+
+        valid_thresholds = {"blocker", "critical", "warning", "info", "never"}
+        if fail_on not in valid_thresholds:
+            print(f"::error::Invalid fail-on '{fail_on}'.", file=sys.stderr)
+            sys.exit(2)
+
+        extra_args: list[str] = []
+        if host_memory and mode in {"scan", "flags"}:
+            extra_args.extend(["--host-memory", host_memory])
+
+        console_cmd = [java_bin, "-jar", jar_path, mode, target, *extra_args, "--fail-on", fail_on]
+        proc = subprocess.run(console_cmd, check=False)
+        exit_code = proc.returncode
+        if exit_code == 2:
+            sys.exit(2)
+
+        temp_dir = Path(os.environ.get("RUNNER_TEMP") or "/tmp")
+        temp_dir.mkdir(parents=True, exist_ok=True)
+        json_report_path = temp_dir / "serverdoctor-report.json"
+
+        sarif_args = ["--sarif", sarif_file] if sarif_file else []
+        json_cmd = [
+            java_bin, "-jar", jar_path, mode, target, *extra_args,
+            "--format", "json", "--fail-on", "never", "-o", str(json_report_path), *sarif_args,
+        ]
+        subprocess.run(json_cmd, check=True, stdout=subprocess.DEVNULL)
+
+        report = json.loads(json_report_path.read_text(encoding="utf-8"))
+
+        def esc(val: object) -> str:
+            return str(val).replace("|", "\\|").replace("\n", " ").strip()
+
+        lines: list[str] = []
+        tool_ver = esc(report.get("toolVersion", "unknown"))
+        summary = report.get("summary", {})
+        lines.append(f"### ServerDoctor v{tool_ver} Diagnostic Summary")
+        lines.append("")
+        lines.append(f"Subcommand: `{mode}` | Target: `{esc(target)}` | Gate (`fail-on`): `{fail_on}`")
+        lines.append("")
+        lines.append("| Audit | Subject | Blocker | Critical | Warning | Info | Worst |")
+        lines.append("| --- | --- | ---: | ---: | ---: | ---: | --- |")
+
+        all_findings: list[dict] = []
+        for audit in report.get("audits", []):
+            s = audit.get("summary", {})
+            findings = audit.get("findings", [])
+            all_findings.extend(findings)
+            lines.append(
+                f"| `{esc(audit.get('subjectKind', ''))}` | `{esc(audit.get('subject', ''))}` | "
+                f"{int(s.get('blocker', 0))} | {int(s.get('critical', 0))} | "
+                f"{int(s.get('warning', 0))} | {int(s.get('info', 0))} | "
+                f"`{esc(s.get('worst') or 'clean')}` |"
+            )
+
+        if all_findings:
+            lines.append("")
+            lines.append("#### Findings")
+            lines.append("")
+            lines.append("| Rule | Severity | Location | Detail |")
+            lines.append("| --- | --- | --- | --- |")
+            for finding in all_findings[:20]:
+                lines.append(
+                    f"| `{esc(finding.get('ruleId', ''))}` | `{esc(str(finding.get('severity', '')).lower())}` | "
+                    f"`{esc(finding.get('location', ''))}` | {esc(finding.get('detail', ''))} |"
+                )
+        else:
+            lines.append("")
+            lines.append("No diagnostic findings were reported.")
+
+        if sarif_file:
+            lines.append("")
+            lines.append(f"SARIF report written to `{esc(sarif_file)}`.")
+
+        summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+        if summary_path:
+            with open(summary_path, "a", encoding="utf-8") as handle:
+                handle.write("\n".join(lines) + "\n")
+
+        output_path = os.environ.get("GITHUB_OUTPUT")
+        if output_path:
+            with open(output_path, "a", encoding="utf-8") as handle:
+                handle.write(f"exit-code={exit_code}\n")
+                handle.write(f"json-report={json_report_path}\n")
+                handle.write(f"sarif-file={sarif_file}\n")
+
+        sys.exit(exit_code)
+        PY

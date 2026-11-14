@@ -11,8 +11,8 @@ import java.util.zip.GZIPInputStream
  *
  * Writing this rather than taking a dependency keeps the jar small and the trust boundary obvious: the
  * reader only ever produces maps, lists and primitives, so a world file cannot cause anything to be
- * constructed or executed. Both caps below exist because the file being read may be corrupt — that is
- * the case this audit is for — and a corrupt length prefix is how a parser is talked into allocating
+ * constructed or executed. Both caps below exist because the file being read may be corrupt - that is
+ * the case this audit is for - and a corrupt length prefix is how a parser is talked into allocating
  * everything it can.
  */
 object Nbt {

@@ -13,7 +13,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * `serverdoctor log <file...>` — triage a server log, a rolled `*.log.gz`, or a pasted crash report.
+ * `serverdoctor log <file...>` - triage a server log, a rolled `*.log.gz`, or a pasted crash report.
  *
  * A directory is accepted too, because the thing an operator has to hand is usually the server folder
  * rather than a path to the log inside it.

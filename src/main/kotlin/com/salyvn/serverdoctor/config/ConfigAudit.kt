@@ -44,6 +44,7 @@ class ConfigAudit {
         checkEula(configs, sink)
         checkWorldDirectory(configs, sink, facts)
         checkAntiXray(configs, sink)
+        checkChunkSystem(configs, sink)
 
         return ScanReport(
             tool = BuildInfo.NAME,
@@ -312,6 +313,30 @@ class ConfigAudit {
                 location = "${file.label}:${file["anticheat.anti-xray.enabled"]?.line}",
                 detail = "anti-xray is enabled with engine-mode $mode.",
             )
+        }
+    }
+
+    private fun checkChunkSystem(configs: ServerConfigSet, sink: FindingSink) {
+        val global = configs.paperGlobal ?: return
+        global["chunk-system.io-threads"]?.let { entry ->
+            val ioThreads = entry.value.toIntOrNull()
+            if (ioThreads != null && (ioThreads == 0 || ioThreads < -1)) {
+                sink.add(
+                    rule = ConfigRules.CHUNK_SYSTEM_BOTTLENECK,
+                    location = "${global.label}:${entry.line}",
+                    detail = "chunk-system.io-threads is $ioThreads (default is -1); 0 disables dedicated async region I/O.",
+                )
+            }
+        }
+        global["chunk-system.worker-threads"]?.let { entry ->
+            val workers = entry.value.toIntOrNull()
+            if (workers != null && (workers == 0 || workers == 1 || workers < -1)) {
+                sink.add(
+                    rule = ConfigRules.CHUNK_SYSTEM_BOTTLENECK,
+                    location = "${global.label}:${entry.line}",
+                    detail = "chunk-system.worker-threads is $workers (default is -1), serialising Moonrise chunk generation and lighting.",
+                )
+            }
         }
     }
 

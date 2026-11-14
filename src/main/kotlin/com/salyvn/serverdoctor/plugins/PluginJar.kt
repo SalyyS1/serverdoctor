@@ -67,8 +67,8 @@ data class PluginDescriptor(
  * text entries and the manifest, and the bytes are hashed.
  *
  * The hashes are the only part of this that identifies a build rather than a claim, which is why all
- * three are computed: marketplace APIs index files by digest and do not agree on which one — Modrinth
- * answers to SHA-1, Hangar publishes SHA-256 — so a hash is what turns "a jar called
+ * three are computed: marketplace APIs index files by digest and do not agree on which one - Modrinth
+ * answers to SHA-1, Hangar publishes SHA-256 - so a hash is what turns "a jar called
  * Essentials.jar" into "this exact published build, or something else entirely".
  */
 data class PluginJar(

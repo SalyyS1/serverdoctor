@@ -14,7 +14,7 @@ import com.salyvn.serverdoctor.plugins.PluginIndex
 import java.nio.file.Files
 
 /**
- * `serverdoctor crash <report|crash-reports|server-dir>` — read what the server said as it stopped.
+ * `serverdoctor crash <report|crash-reports|server-dir>` - read what the server said as it stopped.
  *
  * A crash report carries its own `JVM Flags:` line, so the flags audit runs over it too and the run
  * prints two reports. That is the point of pointing this at a file somebody emailed: the server it came

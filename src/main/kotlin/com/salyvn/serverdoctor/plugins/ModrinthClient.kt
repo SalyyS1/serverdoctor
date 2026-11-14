@@ -32,7 +32,7 @@ data class ProjectInfo(
  *
  * It looks a file up by digest rather than by name, because a name proves nothing: two jars called
  * `Essentials.jar` can be anything. A hash either matches a published build or it does not, and when
- * it does not this tool says exactly that rather than implying something is wrong — paid plugins,
+ * it does not this tool says exactly that rather than implying something is wrong - paid plugins,
  * private builds and older releases pruned from an index all fail to match for ordinary reasons.
  *
  * Endpoint shapes were verified against the live API on 2026-08-24, including the response headers

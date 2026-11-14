@@ -1,0 +1,1001 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ServerDoctor Web Triage - Client-Side Paper &amp; Folia Diagnostics</title>
+  <meta name="description" content="Zero-backend browser analyzer for Minecraft Paper, Folia, and Spigot logs, .log.gz archives, crash reports, JVM G1GC/ZGC flags, and server configs.">
+  <style>
+    :root {
+      --bg: #0b0f17;
+      --panel: #111827;
+      --panel-alt: #162032;
+      --border: #24324a;
+      --text: #e5edf8;
+      --muted: #93a4bd;
+      --accent: #38bdf8;
+      --blocker: #e879f9;
+      --critical: #f87171;
+      --warning: #fbbf24;
+      --info: #38bdf8;
+      --ok: #34d399;
+      --mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      line-height: 1.5;
+    }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 28px 20px 64px;
+    }
+    header {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    h1 {
+      margin: 0;
+      font-size: 1.65rem;
+      letter-spacing: -0.02em;
+    }
+    .subtitle {
+      margin: 6px 0 0;
+      color: var(--muted);
+      max-width: 720px;
+      font-size: 0.95rem;
+    }
+    .nav-links {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+      font-size: 0.88rem;
+    }
+    .nav-links a {
+      padding: 6px 12px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--panel);
+      color: var(--text);
+    }
+    .nav-links a:hover {
+      border-color: var(--accent);
+      text-decoration: none;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 18px;
+      margin-top: 22px;
+    }
+    @media (max-width: 880px) {
+      .grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 18px;
+    }
+    .card h2 {
+      margin: 0 0 10px;
+      font-size: 1.02rem;
+    }
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: 8px;
+      padding: 24px 16px;
+      text-align: center;
+      background: var(--panel-alt);
+      cursor: pointer;
+      transition: border-color 0.15s ease;
+    }
+    .dropzone.dragover, .dropzone:hover {
+      border-color: var(--accent);
+    }
+    .dropzone p {
+      margin: 4px 0;
+      font-size: 0.92rem;
+    }
+    .dropzone .hint {
+      color: var(--muted);
+      font-size: 0.82rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 158px;
+      background: #080c14;
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-family: var(--mono);
+      font-size: 0.8rem;
+      resize: vertical;
+    }
+    .btn-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 12px;
+    }
+    button {
+      background: var(--panel-alt);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 7px 13px;
+      font-size: 0.84rem;
+      cursor: pointer;
+      font-family: var(--sans);
+    }
+    button.primary {
+      background: #0284c7;
+      border-color: #0ea5e9;
+      color: #fff;
+      font-weight: 600;
+    }
+    button:hover { border-color: var(--accent); }
+    .privacy {
+      margin-top: 12px;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+    .stats-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(135px, 1fr));
+      gap: 10px;
+      margin-top: 20px;
+    }
+    .stat {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+    }
+    .stat .label {
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+    }
+    .stat .val {
+      font-size: 1.35rem;
+      font-weight: 700;
+      font-family: var(--mono);
+      margin-top: 2px;
+    }
+    .facts-box {
+      margin-top: 16px;
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 16px;
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px 24px;
+    }
+    .facts-box span b { color: var(--muted); font-weight: 500; }
+    .findings {
+      margin-top: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .finding {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-left-width: 4px;
+      border-radius: 8px;
+      padding: 14px 16px;
+    }
+    .finding.sev-blocker { border-left-color: var(--blocker); }
+    .finding.sev-critical { border-left-color: var(--critical); }
+    .finding.sev-warning { border-left-color: var(--warning); }
+    .finding.sev-info { border-left-color: var(--info); }
+    .finding-head {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+    .badge {
+      font-family: var(--mono);
+      font-size: 0.73rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      padding: 2px 7px;
+      border-radius: 4px;
+      background: rgba(255,255,255,0.06);
+    }
+    .sev-blocker .badge { color: var(--blocker); }
+    .sev-critical .badge { color: var(--critical); }
+    .sev-warning .badge { color: var(--warning); }
+    .sev-info .badge { color: var(--info); }
+    .rule-id {
+      font-family: var(--mono);
+      font-size: 0.82rem;
+      color: var(--muted);
+    }
+    .finding-title {
+      font-weight: 600;
+      font-size: 0.95rem;
+    }
+    .finding-loc {
+      margin-left: auto;
+      font-family: var(--mono);
+      font-size: 0.78rem;
+      color: var(--muted);
+    }
+    .finding-detail {
+      font-size: 0.88rem;
+      margin: 6px 0;
+    }
+    .evidence {
+      background: #080c14;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin: 8px 0;
+      font-family: var(--mono);
+      font-size: 0.77rem;
+      overflow-x: auto;
+      white-space: pre;
+      color: #cbd5e1;
+    }
+    .fix-line {
+      font-size: 0.84rem;
+      color: #a7f3d0;
+      margin-top: 6px;
+    }
+    .prov-line {
+      font-size: 0.76rem;
+      color: var(--muted);
+      font-family: var(--mono);
+      margin-top: 4px;
+    }
+    .clean-banner {
+      padding: 18px;
+      border: 1px solid rgba(52, 211, 153, 0.4);
+      background: rgba(52, 211, 153, 0.08);
+      border-radius: 8px;
+      color: var(--ok);
+      font-weight: 600;
+    }
+    footer {
+      margin-top: 42px;
+      padding-top: 18px;
+      border-top: 1px solid var(--border);
+      font-size: 0.83rem;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      gap: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>serverdoctor // browser triage</h1>
+        <p class="subtitle">
+          Offline client-side diagnostics for Paper, Folia, and Spigot server logs (including rolled <code>.log.gz</code>),
+          crash reports, JVM G1GC/ZGC flags, and cross-file server configs. Nothing leaves your browser.
+        </p>
+      </div>
+      <nav class="nav-links">
+        <a href="https://github.com/SalyyS1/serverdoctor">GitHub Repository</a>
+        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.3.0</a>
+        <a href="https://salyys1.github.io/foliascan/">FoliaScan</a>
+        <a href="https://salyys1.github.io/pluginscope/">PluginScope</a>
+        <a href="https://salyys1.github.io/minecraftkit/">MinecraftKit</a>
+      </nav>
+    </header>
+
+    <div class="grid">
+      <section class="card">
+        <h2>1. Drop Server Artifacts</h2>
+        <div id="dropzone" class="dropzone" tabindex="0">
+          <p><strong>Drop files here or click to browse</strong></p>
+          <p class="hint">Accepts <code>latest.log</code>, <code>*.log.gz</code>, <code>crash-*.txt</code>, <code>start.sh</code>, <code>server.properties</code>, <code>spigot.yml</code>, <code>paper-global.yml</code></p>
+          <input id="fileInput" type="file" multiple hidden>
+        </div>
+        <div class="btn-row">
+          <button type="button" data-preset="folia">Sample: Folia Stall + ZGC Stall</button>
+          <button type="button" data-preset="paper">Sample: Paper Hang + Full GC + Config</button>
+          <button type="button" data-preset="clean">Sample: Healthy Velocity Backend</button>
+        </div>
+        <p class="privacy">100% local execution using browser ArrayBuffer and DecompressionStream('gzip'). Zero network requests.</p>
+      </section>
+
+      <section class="card">
+        <h2>2. Or Paste Log / Crash Report / JVM Flags</h2>
+        <textarea id="pasteInput" spellcheck="false" placeholder="Paste latest.log lines, Unified JVM GC logs ([142.8s][info][gc]...), a crash report, or java -Xms... flags here"></textarea>
+        <div class="btn-row">
+          <button type="button" id="runPasteBtn" class="primary">Run Triage</button>
+          <button type="button" id="exportJsonBtn">Export JSON</button>
+          <button type="button" id="exportSarifBtn">Export SARIF v2.1.0</button>
+          <button type="button" id="clearBtn">Clear</button>
+        </div>
+      </section>
+    </div>
+
+    <div class="stats-bar" id="statsBar">
+      <div class="stat"><div class="label">Artifacts</div><div class="val" id="statFiles">0</div></div>
+      <div class="stat"><div class="label">Blocker</div><div class="val" id="statBlocker" style="color:var(--blocker)">0</div></div>
+      <div class="stat"><div class="label">Critical</div><div class="val" id="statCritical" style="color:var(--critical)">0</div></div>
+      <div class="stat"><div class="label">Warning</div><div class="val" id="statWarning" style="color:var(--warning)">0</div></div>
+      <div class="stat"><div class="label">Info</div><div class="val" id="statInfo" style="color:var(--info)">0</div></div>
+    </div>
+
+    <div class="facts-box" id="factsBox" style="display:none"></div>
+    <div class="findings" id="findingsList"></div>
+
+    <footer>
+      <div>ServerDoctor v0.3.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
+      <div>Companion tools: <a href="https://github.com/SalyyS1/foliascan">foliascan</a> | <a href="https://github.com/SalyyS1/pluginscope">pluginscope</a> | <a href="https://github.com/SalyyS1/minecraftkit">minecraftkit</a></div>
+    </footer>
+  </div>
+
+  <script>
+    (function () {
+      "use strict";
+
+      const PRESETS = {
+        folia: [
+          {
+            name: "logs/latest.log",
+            text: [
+              "[12:00:02] [ServerMain/INFO]: Starting minecraft server version 1.21.4",
+              "[12:00:02] [ServerMain/INFO]: This server is running Folia version 1.21.4-38-main (MC: 1.21.4)",
+              "[12:00:08] [Region Scheduler Thread #0/INFO]: Done (6.112s)! For help, type \"help\"",
+              "[12:04:11] [Region Scheduler Thread #3/ERROR]: Thread Region Scheduler Thread #3 failed main thread check: Cannot move entity off-main",
+              "java.lang.IllegalStateException: Cannot access entity off-owning region",
+              "\tat ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(TickThread.java:58)",
+              "\tat net.minecraft.server.level.ServerLevel.addFreshEntity(ServerLevel.java:1204)",
+              "\tat com.example.skywars.ArenaManager.spawnKitNpc(ArenaManager.java:91)",
+              "[12:04:19] [Region Scheduler Thread #1/ERROR]: Could not pass event PlayerMoveEvent to SkyWars v2.1.0",
+              "java.lang.UnsupportedOperationException: Must use teleportAsync while in region threading",
+              "\tat org.bukkit.craftbukkit.entity.CraftEntity.teleport(CraftEntity.java:214)",
+              "\tat com.example.skywars.BorderGuard.pushBack(BorderGuard.java:44)",
+              "[284.120s][info][gc] GC(18) Allocation Stall (Region Scheduler Thread #2) 348.910ms",
+              "[12:06:55] [Folia Region Watchdog/ERROR]: --- DO NOT REPORT THIS TO FOLIA - THIS IS NOT A BUG OR A CRASH ---",
+              "[12:06:55] [Folia Region Watchdog/ERROR]: Tick region (14, -8) has not responded for 15.4 seconds!",
+              "[12:06:55] [Folia Region Watchdog/ERROR]: \tat java.base/java.net.SocketInputStream.read(SocketInputStream.java:151)",
+              "[12:06:55] [Folia Region Watchdog/ERROR]: \tat com.example.crates.WebhookClient.post(WebhookClient.java:77)"
+            ].join("\n")
+          },
+          {
+            name: "start.sh",
+            text: "#!/usr/bin/env bash\njava -Xms6G -Xmx6G -XX:+UseZGC -XX:-ZGenerational -jar folia.jar --nogui\n"
+          }
+        ],
+        paper: [
+          {
+            name: "logs/latest.log",
+            text: [
+              "[22:31:01] [Server thread/INFO]: Starting minecraft server version 1.21.4",
+              "[22:31:01] [Server thread/INFO]: This server is running Paper version 1.21.4-212-main (MC: 1.21.4)",
+              "[22:31:15] [Server thread/INFO]: Done (14.210s)! For help, type \"help\"",
+              "[142.810s][info][gc] GC(14) Pause Young (Normal) (G1 Evacuation Pause) 6812M->2104M(8192M) 185.421ms",
+              "[318.004s][info][gc] GC(29) Pause Full (G1 Compaction Pause) 7980M->7420M(8192M) 1420.612ms",
+              "[22:38:10] [Server thread/WARN]: Catching synchronous chunk load at world (-42, 19)",
+              "java.lang.Throwable: Synchronous chunk load",
+              "\tat io.papermc.paper.chunk.system.scheduling.SyncLoadFinder.logSyncLoad(SyncLoadFinder.java:88)",
+              "\tat com.example.rtp.RandomTeleport.pickSafeSpot(RandomTeleport.java:114)",
+              "[22:40:02] [RegionFile I/O Thread #0/ERROR]: Failed to save chunk (-42, 19) in world 'world'",
+              "java.io.IOException: No space left on device",
+              "\tat ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO.writeData(MoonriseRegionFileIO.java:310)",
+              "[22:51:44] [Paper Watchdog Thread/ERROR]: The server has stopped responding! This is (probably) not a Paper bug.",
+              "[22:51:44] [Paper Watchdog Thread/ERROR]: \tat com.mysql.cj.protocol.a.SimplePacketReader.readMessage(SimplePacketReader.java:66)",
+              "[22:51:44] [Paper Watchdog Thread/ERROR]: \tat com.example.worldtools.storage.MySqlStore.load(MySqlStore.java:88)"
+            ].join("\n")
+          },
+          {
+            name: "server.properties",
+            text: "online-mode=false\nenable-rcon=true\nrcon.password=\nview-distance=8\nsimulation-distance=12\n"
+          },
+          {
+            name: "config/paper-global.yml",
+            text: "_version: 29\nversion: 29\nchunk-system:\n  io-threads: 0\n  worker-threads: 1\nproxies:\n  velocity:\n    enabled: false\n    secret: ''\n"
+          }
+        ],
+        clean: [
+          {
+            name: "server.properties",
+            text: "online-mode=false\nenforce-secure-profile=true\nenable-rcon=false\nview-distance=10\nsimulation-distance=8\n"
+          },
+          {
+            name: "config/paper-global.yml",
+            text: "_version: 29\nversion: 29\nchunk-system:\n  io-threads: -1\n  worker-threads: -1\nproxies:\n  velocity:\n    enabled: true\n    online-mode: true\n    secret: 'prod-shared-hmac-991a8f'\nspark:\n  enabled: true\n"
+          },
+          {
+            name: "start.sh",
+            text: "java -Xms12G -Xmx12G -XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch -jar paper.jar --nogui\n"
+          }
+        ]
+      };
+
+      const RULES = {
+        L001: { sev: "blocker", title: "The watchdog fired: a tick took longer than the timeout", fix: "Inspect the topmost plugin frame in the watchdog thread dump rather than raising timeout-time.", prov: "PaperMC/Paper WatchdogThread.java:78-84" },
+        L002: { sev: "critical", title: "A plugin touched the server from the wrong thread", fix: "Schedule the world mutation on the owning main or region thread.", prov: "PaperMC/Paper AsyncCatcher.java" },
+        L003: { sev: "critical", title: "A plugin's event handler threw", fix: "Report the exception and stack trace to the named plugin author.", prov: "PaperMC/Paper SimplePluginManager.java:670" },
+        L006: { sev: "blocker", title: "A plugin was compiled for a newer Java release than the server runs", fix: "Upgrade the Java runtime or install a build compiled for your JDK.", prov: "JVM class file specification" },
+        L007: { sev: "blocker", title: "Folia refused a plugin that is not marked as supporting it", fix: "Install a Folia-compatible plugin build or run Paper.", prov: "PaperMC/Folia Region-Threading-Base.patch" },
+        L011: { sev: "blocker", title: "The server could not bind its port", fix: "Terminate the process holding server-port or pick a free port.", prov: "PaperMC/Paper DedicatedServer.java.patch" },
+        L012: { sev: "blocker", title: "The server stopped because the EULA has not been accepted", fix: "Set eula=true in eula.txt.", prov: "PaperMC/Paper Main.java.patch:76-83" },
+        L013: { sev: "critical", title: "The JVM ran out of memory", fix: "Restart and profile heap retention or thread count before raising -Xmx blindly.", prov: "java.lang.OutOfMemoryError" },
+        L017: { sev: "critical", title: "A plugin violated Folia's region TickThread ownership check", fix: "Use RegionScheduler, EntityScheduler, or GlobalRegionScheduler, and replace synchronous teleport with teleportAsync.", prov: "PaperMC/Folia TickThread.ensureTickThread & CraftEntity.teleport" },
+        L018: { sev: "blocker", title: "A Folia region tick thread stalled past the watchdog timeout", fix: "Move blocking socket, database, or lock waits off the stalled TickRegionThread onto AsyncScheduler.", prov: "PaperMC/Folia FoliaWatchdogThread.java" },
+        L019: { sev: "warning", title: "Stop-the-world garbage collection pause exceeded a server tick", fix: "Fix -Xms equal to -Xmx and use Paper's G1GC set or Generational ZGC (-XX:+UseZGC -XX:+ZGenerational).", prov: "OpenJDK JEP 158 Unified GC Logging (50 ms tick budget)" },
+        L020: { sev: "critical", title: "Garbage collector hit severe heap pressure, Full GC, or allocation stall", fix: "Inspect heap retention with spark or increase -Xmx so post-GC live occupancy stays below 75%.", prov: "OpenJDK HotSpot G1CollectedHeap & ZGC ZAllocationStall" },
+        L021: { sev: "warning", title: "Synchronous chunk load or generation blocked a tick thread", fix: "Replace synchronous getChunkAt / Location.getChunk calls with getChunkAtAsync and pre-generate worlds.", prov: "PaperMC/Paper SyncLoadFinder.java" },
+        L022: { sev: "critical", title: "Paper chunk system I/O error, oversized chunk, or save queue stall", fix: "Verify disk free space and storage latency, and inspect oversized chunk coordinates for NBT bloat.", prov: "PaperMC/Paper MoonriseRegionFileIO" },
+        F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
+        F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
+        F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
+        F013: { sev: "warning", title: "ZGC is enabled without generational mode or sufficient heap headroom", fix: "Use -XX:+ZGenerational and at least 8-12 GiB of fixed heap.", prov: "JEP 439 / JEP 474" },
+        F014: { sev: "warning", title: "G1GC pause target or young-generation bounds are counterproductive", fix: "Keep MaxGCPauseMillis in 50..200 ms and G1NewSizePercent <= G1MaxNewSizePercent.", prov: "OpenJDK HotSpot G1Arguments" },
+        C001: { sev: "critical", title: "Offline mode with no proxy in front", fix: "Enable online-mode=true or configure Velocity modern forwarding with a shared secret.", prov: "PaperMC/Paper GlobalConfiguration.java:112-121" },
+        C002: { sev: "blocker", title: "Velocity forwarding is on with an empty secret", fix: "Copy forwarding.secret from Velocity into proxies.velocity.secret.", prov: "PaperMC/Paper GlobalConfiguration.java:119-121" },
+        C006: { sev: "critical", title: "RCON is enabled with no password", fix: "Set a strong rcon.password or disable enable-rcon.", prov: "server.properties enable-rcon / rcon.password" },
+        C007: { sev: "warning", title: "Simulation distance is larger than view distance", fix: "Lower simulation-distance to view-distance or less.", prov: "server.properties view-distance / simulation-distance" },
+        C018: { sev: "warning", title: "Paper chunk-system threads or rate limits create an I/O bottleneck", fix: "Reset chunk-system.io-threads and chunk-system.worker-threads to -1.", prov: "PaperMC/Paper GlobalConfiguration.java (ChunkSystem)" },
+        X001: { sev: "critical", title: "The server crashed", fix: "Start from the outermost plugin frame in the crash stack trace.", prov: "Minecraft Crash Report header & stacktrace" }
+      };
+
+      const SEV_RANK = { blocker: 4, critical: 3, warning: 2, info: 1 };
+      const SERVER_PKGS = ["net.minecraft.", "org.bukkit.", "io.papermc.", "com.destroystokyo.", "org.spigotmc.", "ca.spottedleaf.", "java.", "javax.", "sun.", "jdk.", "kotlin.", "io.netty."];
+
+      let lastState = { artifacts: 0, facts: {}, findings: [] };
+
+      function firstForeignClass(lines) {
+        for (const line of lines) {
+          const m = line.match(/^\s*at\s+(?:[\w.$@-]*\/)*([\w$.]+)\.([\w$<>]+)\(/);
+          if (!m) continue;
+          const cls = m[1];
+          if (!SERVER_PKGS.some(p => cls.startsWith(p))) return cls;
+        }
+        return null;
+      }
+
+      function parseProperties(text) {
+        const out = {};
+        text.split(/\r?\n/).forEach((raw, idx) => {
+          const line = raw.trim();
+          if (!line || line.startsWith("#") || line.startsWith("!")) return;
+          const eq = line.indexOf("=");
+          if (eq < 0) return;
+          out[line.slice(0, eq).trim()] = { value: line.slice(eq + 1).trim(), line: idx + 1 };
+        });
+        return out;
+      }
+
+      function parseSimpleYaml(text) {
+        const out = {};
+        const stack = [];
+        text.split(/\r?\n/).forEach((raw, idx) => {
+          const stripped = raw.replace(/#.*$/, "");
+          if (!stripped.trim()) return;
+          const indent = raw.match(/^ */)[0].length;
+          const m = stripped.trim().match(/^([A-Za-z0-9_.-]+):\s*(.*)$/);
+          if (!m) return;
+          while (stack.length && stack[stack.length - 1].indent >= indent) stack.pop();
+          const key = m[1];
+          let val = m[2].trim();
+          if ((val.startsWith("'") && val.endsWith("'")) || (val.startsWith('"') && val.endsWith('"'))) {
+            val = val.slice(1, -1);
+          }
+          const path = stack.map(s => s.key).concat(key).join(".");
+          if (val === "") {
+            stack.push({ indent, key });
+          } else {
+            out[path] = { value: val, line: idx + 1 };
+          }
+        });
+        return out;
+      }
+
+      function parseSizeBytes(raw) {
+        const m = String(raw || "").trim().match(/^(\d+)([bkmgtBKMGT]b?)?$/);
+        if (!m) return null;
+        const n = Number(m[1]);
+        const u = (m[2] || "").toLowerCase();
+        if (u.startsWith("t")) return n * 1099511627776;
+        if (u.startsWith("g")) return n * 1073741824;
+        if (u.startsWith("m")) return n * 1048576;
+        if (u.startsWith("k")) return n * 1024;
+        return n;
+      }
+
+      function auditFlagsLine(source, cmdLine, findings, facts) {
+        const tokens = cmdLine.trim().split(/\s+/);
+        let xms = null, xmx = null;
+        const toggles = {}, values = {}, props = {};
+        for (const tok of tokens) {
+          if (tok.startsWith("-Xms")) xms = parseSizeBytes(tok.slice(4));
+          else if (tok.startsWith("-Xmx")) xmx = parseSizeBytes(tok.slice(4));
+          else if (tok.startsWith("-XX:+")) toggles[tok.slice(5)] = true;
+          else if (tok.startsWith("-XX:-")) toggles[tok.slice(5)] = false;
+          else if (tok.startsWith("-XX:") && tok.includes("=")) {
+            const [k, v] = tok.slice(4).split("=");
+            values[k] = v;
+          } else if (tok.startsWith("-D")) {
+            const [k, v] = tok.slice(2).split("=");
+            props[k] = v ?? "true";
+          }
+        }
+        if (xmx) facts["heap"] = (xms ? ("-Xms " + (xms / 1073741824).toFixed(1) + " GiB, ") : "") + "-Xmx " + (xmx / 1073741824).toFixed(1) + " GiB";
+        if (xms && xmx && xms !== xmx) {
+          findings.push(makeFinding("F001", source, "-Xms and -Xmx differ, causing runtime heap resizing pauses.", [cmdLine]));
+        }
+        if (props["disable.watchdog"] !== undefined && props["disable.watchdog"] !== "false") {
+          findings.push(makeFinding("F003", source, "-Ddisable.watchdog disables Paper thread dumps during server hangs.", [cmdLine]));
+        }
+        if (toggles["UseConcMarkSweepGC"] || toggles["UseParNewGC"]) {
+          findings.push(makeFinding("F006", source, "CMS collector flags are present on a post-JDK 14 runtime.", [cmdLine]));
+        }
+        if (toggles["UseZGC"]) {
+          facts["collector"] = "ZGC";
+          const reasons = [];
+          if (toggles["ZGenerational"] === false) reasons.push("-XX:-ZGenerational forces legacy single-generation ZGC");
+          if (xmx && xmx < 8 * 1073741824) reasons.push("-Xmx is below 8 GiB, risking ZGC Allocation Stalls under chunk load");
+          if (reasons.length) findings.push(makeFinding("F013", source, reasons.join("; ") + ".", [cmdLine]));
+        } else if (toggles["UseG1GC"]) {
+          facts["collector"] = "G1GC";
+          const pause = values["MaxGCPauseMillis"] ? Number(values["MaxGCPauseMillis"]) : null;
+          const nMin = values["G1NewSizePercent"] ? Number(values["G1NewSizePercent"]) : null;
+          const nMax = values["G1MaxNewSizePercent"] ? Number(values["G1MaxNewSizePercent"]) : null;
+          if (pause !== null && (pause < 25 || pause > 250)) {
+            findings.push(makeFinding("F014", source, "MaxGCPauseMillis=" + pause + " ms is outside the 25..250 ms G1 operating window.", [cmdLine]));
+          }
+          if (nMin !== null && nMax !== null && nMin > nMax) {
+            findings.push(makeFinding("F014", source, "G1NewSizePercent (" + nMin + ") exceeds G1MaxNewSizePercent (" + nMax + ").", [cmdLine], "blocker"));
+          }
+        }
+      }
+
+      function auditLogText(name, text, findings, facts) {
+        const lines = text.split(/\r?\n/);
+        const grouped = new Map();
+        function addGrouped(ruleId, key, lineNo, detail, evidence, sevOverride) {
+          const mapKey = ruleId + "::" + key;
+          if (grouped.has(mapKey)) {
+            grouped.get(mapKey).count += 1;
+            if (evidence && evidence.length && grouped.get(mapKey).evidence.length < 5) {
+              for (const ev of evidence) {
+                if (!grouped.get(mapKey).evidence.includes(ev)) grouped.get(mapKey).evidence.push(ev);
+              }
+            }
+          } else {
+            grouped.set(mapKey, { ruleId, lineNo, detail, evidence: (evidence || []).slice(0, 6), count: 1, sevOverride });
+          }
+        }
+
+        let activeWatchdogKey = null;
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          const lineNo = i + 1;
+
+          const srvMatch = line.match(/This server is running ([^\r\n]+)/);
+          if (srvMatch && !facts["server"]) facts["server"] = srvMatch[1].trim();
+          const mcMatch = line.match(/Starting minecraft server version (\S+)/);
+          if (mcMatch && !facts["minecraft"]) facts["minecraft"] = mcMatch[1];
+
+          const block = [line];
+          let j = i + 1;
+          while (j < lines.length && j - i < 25 && (/^\s+at\s/.test(lines[j]) || /^[A-Za-z0-9_$.]+(?:Exception|Error|Throwable)/.test(lines[j]) || /^\s*Caused by:/.test(lines[j]))) {
+            block.push(lines[j]);
+            j++;
+          }
+          const full = block.join("\n");
+          const frames = block.filter(l => /^\s*at\s/.test(l)).map(l => l.trim());
+          const blame = firstForeignClass(frames);
+
+          if (/DO NOT REPORT THIS TO FOLIA|(?:Tick region|Region thread)[^\n]*(?:stalled|has not responded)/i.test(line)) {
+            activeWatchdogKey = "L018::folia-stall";
+            addGrouped("L018", "folia-stall", lineNo, "Folia region tick thread stalled past watchdog timeout" + (blame ? (" (" + blame + ")") : "") + ".", frames);
+            continue;
+          }
+          if (line.includes("The server has stopped responding")) {
+            activeWatchdogKey = "L001::watchdog";
+            addGrouped("L001", "watchdog", lineNo, "Paper watchdog fired because the main thread stalled past timeout-time.", frames);
+            continue;
+          }
+          if (activeWatchdogKey && /(?:Watchdog|Folia Region Watchdog)/i.test(line) && /\tat\s/.test(line)) {
+            const atPart = line.slice(line.indexOf("at ")).trim();
+            const entry = grouped.get(activeWatchdogKey);
+            if (entry && entry.evidence.length < 6) entry.evidence.push(atPart);
+            continue;
+          }
+
+          if (full.includes("Must use teleportAsync while in region threading") ||
+              (full.includes("CraftScheduler") && /UnsupportedOperationException|region threading|Folia/i.test(full)) ||
+              frames.some(f => f.includes(".TickThread.ensureTickThread")) ||
+              /failed main thread check: Cannot |Cannot (?:read|modify|access|move) [^\n]+(?:asynchronously|off-owning region)/.test(full)) {
+            const desc = full.includes("teleportAsync")
+              ? "Synchronous Entity.teleport called under Folia region threading"
+              : (full.includes("CraftScheduler") ? "Legacy Bukkit CraftScheduler invoked under Folia" : "TickThread regional ownership check failed");
+            addGrouped("L017", desc + "@" + (blame || "unknown"), lineNo, desc + (blame ? (", reached from " + blame) : "") + ".", frames.slice(0, 4));
+            i = j - 1;
+            continue;
+          }
+
+          if (/failed main thread check:|Asynchronous [^!\n]+!/.test(full)) {
+            addGrouped("L002", blame || "async", lineNo, "Off-thread world access caught by AsyncCatcher" + (blame ? (" from " + blame) : "") + ".", frames.slice(0, 4));
+            i = j - 1;
+            continue;
+          }
+
+          const evMatch = line.match(/Could not pass event (\S+) to ([^\r\n]+)/);
+          if (evMatch) {
+            addGrouped("L003", evMatch[1] + "@" + evMatch[2], lineNo, evMatch[2] + " threw while handling " + evMatch[1] + ".", frames.slice(0, 4));
+            i = j - 1;
+            continue;
+          }
+
+          if (full.includes("UnsupportedClassVersionError")) {
+            addGrouped("L006", "class-version", lineNo, "Plugin compiled for a newer Java class file version than this JVM supports.", block.slice(0, 2));
+            i = j - 1;
+            continue;
+          }
+          if (/not marked as supporting (?:Folia|regionised multithreading)/.test(full)) {
+            addGrouped("L007", line.slice(0, 60), lineNo, "Folia refused to load a plugin lacking folia-supported: true.", [line.trim()]);
+            continue;
+          }
+          if (full.includes("FAILED TO BIND TO PORT")) {
+            addGrouped("L011", "port", lineNo, "Server could not bind server-port because another process already holds it.", [line.trim()]);
+            continue;
+          }
+          if (line.includes("You need to agree to the EULA")) {
+            addGrouped("L012", "eula", lineNo, "Server exited during startup because eula.txt is not set to true.", [line.trim()]);
+            continue;
+          }
+          if (full.includes("OutOfMemoryError")) {
+            addGrouped("L013", "oom", lineNo, "JVM threw OutOfMemoryError" + (blame ? (" near " + blame) : "") + ".", block.slice(0, 3));
+            i = j - 1;
+            continue;
+          }
+
+          const stallMatch = line.match(/Allocation Stall\s+\(([^)]+)\)\s+(\d+(?:[.,]\d+)?)ms/);
+          if (stallMatch) {
+            addGrouped("L020", "zgc-stall", lineNo, "ZGC Allocation Stall froze thread \"" + stallMatch[1] + "\" for " + stallMatch[2] + " ms.", [line.trim()]);
+            continue;
+          }
+          const gcMatch = line.match(/GC\(\d+\)\s+Pause\s+([A-Za-z0-9 ()_-]+?)\s+(?:(\d+)([KMG])->(\d+)([KMG])\((\d+)([KMG])\)\s+)?(\d+(?:[.,]\d+)?)ms/);
+          if (gcMatch) {
+            const kind = gcMatch[1].trim();
+            const ms = parseFloat(gcMatch[8].replace(",", "."));
+            if (ms >= 50.0) {
+              addGrouped("L019", "gc-pause", lineNo, "GC Pause " + kind + " froze the JVM for " + ms.toFixed(1) + " ms (exceeding the 50 ms tick budget).", [line.trim()]);
+            }
+            const afterAmt = gcMatch[4] ? Number(gcMatch[4]) : 0;
+            const capAmt = gcMatch[6] ? Number(gcMatch[6]) : 0;
+            const sameUnit = gcMatch[5] === gcMatch[7];
+            const ratio = (capAmt > 0 && sameUnit) ? (afterAmt / capAmt) : 0;
+            if (/^Full/i.test(kind) || ratio >= 0.85) {
+              addGrouped("L020", "gc-pressure", lineNo, /^Full/i.test(kind)
+                ? ("Full GC compaction pause (" + kind + ") ran for " + ms.toFixed(1) + " ms.")
+                : ("Post-GC live set stayed at " + Math.round(ratio * 100) + "% of heap capacity."), [line.trim()]);
+            }
+            continue;
+          }
+
+          if (/Catching synchronous chunk load|synchronous chunk load/i.test(full) || frames.some(f => f.includes("SyncLoadFinder"))) {
+            addGrouped("L021", "sync-chunk@" + (blame || "server"), lineNo, "Synchronous chunk load blocked a tick thread" + (blame ? (", triggered by " + blame) : "") + ".", frames.slice(0, 4));
+            i = j - 1;
+            continue;
+          }
+          if (/Failed to (?:save|load) chunk|Saving oversized chunk|Oversized chunk|MoonriseRegionFileIO/.test(full)) {
+            addGrouped("L022", "chunk-io", lineNo, line.trim(), block.slice(0, 3));
+            i = j - 1;
+          }
+        }
+
+        for (const item of grouped.values()) {
+          const loc = name + ":" + item.lineNo + (item.count > 1 ? (" (x" + item.count + ")") : "");
+          findings.push(makeFinding(item.ruleId, loc, item.detail, item.evidence, item.sevOverride));
+        }
+      }
+
+      function makeFinding(ruleId, location, detail, evidence, sevOverride) {
+        const meta = RULES[ruleId] || { sev: "warning", title: ruleId, fix: "", prov: "" };
+        return {
+          ruleId,
+          severity: sevOverride || meta.sev,
+          title: meta.title,
+          location,
+          detail,
+          evidence: evidence || [],
+          fix: meta.fix,
+          provenance: meta.prov
+        };
+      }
+
+      function runAudit(artifacts) {
+        const findings = [];
+        const facts = {};
+        let props = null, propsName = "server.properties";
+        let paperGlobal = null, paperName = "config/paper-global.yml";
+        let spigot = null;
+
+        for (const art of artifacts) {
+          const lower = art.name.toLowerCase();
+          if (lower.endsWith("server.properties")) {
+            props = parseProperties(art.text);
+            propsName = art.name;
+          } else if (lower.endsWith("paper-global.yml")) {
+            paperGlobal = parseSimpleYaml(art.text);
+            paperName = art.name;
+          } else if (lower.endsWith("spigot.yml")) {
+            spigot = parseSimpleYaml(art.text);
+          } else if (lower.includes("crash-") || art.text.includes("---- Minecraft Crash Report ----")) {
+            const desc = (art.text.match(/^Description:\s*(.+)$/m) || [])[1] || "Server crash";
+            const frames = art.text.split(/\r?\n/).filter(l => /^\s*at\s/.test(l)).map(l => l.trim());
+            const blame = firstForeignClass(frames);
+            findings.push(makeFinding("X001", art.name + ":1", desc + (blame ? (". Outermost plugin class: " + blame + ".") : "."), frames.slice(0, 5)));
+            const jvmLine = (art.text.match(/^\s*JVM Flags:\s*\d+\s+total;\s*(.+)$/m) || [])[1];
+            if (jvmLine) auditFlagsLine(art.name + " (JVM Flags)", "java " + jvmLine + " -jar server.jar", findings, facts);
+          } else if (lower.endsWith(".sh") || lower.endsWith(".bat") || /^\s*(?:\/[\w./-]*\/)?java\s+/m.test(art.text)) {
+            const cmd = art.text.split(/\r?\n/).find(l => /\bjava\b/.test(l) && !l.trim().startsWith("#")) || art.text;
+            auditFlagsLine(art.name, cmd, findings, facts);
+          } else {
+            auditLogText(art.name, art.text, findings, facts);
+          }
+        }
+
+        if (props || paperGlobal || spigot) {
+          const online = props && props["online-mode"] ? props["online-mode"].value === "true" : null;
+          const velOn = paperGlobal && paperGlobal["proxies.velocity.enabled"] && paperGlobal["proxies.velocity.enabled"].value === "true";
+          const velSecret = paperGlobal && paperGlobal["proxies.velocity.secret"] ? paperGlobal["proxies.velocity.secret"].value : "";
+          const bungeeOn = spigot && spigot["settings.bungeecord"] && spigot["settings.bungeecord"].value === "true";
+          if (online !== null) facts["online-mode"] = String(online);
+          if (velOn) facts["forwarding"] = "velocity";
+          if (online === false && !velOn && !bungeeOn) {
+            findings.push(makeFinding("C001", propsName + ":" + props["online-mode"].line, "online-mode=false with neither Velocity nor BungeeCord forwarding enabled.", []));
+          }
+          if (velOn && !velSecret) {
+            const ln = paperGlobal["proxies.velocity.enabled"].line;
+            findings.push(makeFinding("C002", paperName + ":" + ln, "proxies.velocity.enabled is true with an empty proxies.velocity.secret.", []));
+          }
+          if (props && props["enable-rcon"] && props["enable-rcon"].value === "true") {
+            const pw = props["rcon.password"] ? props["rcon.password"].value : "";
+            if (!pw) findings.push(makeFinding("C006", propsName + ":" + props["enable-rcon"].line, "enable-rcon=true with an empty rcon.password.", []));
+          }
+          if (props && props["view-distance"] && props["simulation-distance"]) {
+            const vd = Number(props["view-distance"].value), sd = Number(props["simulation-distance"].value);
+            facts["distances"] = "view " + vd + ", sim " + sd;
+            if (sd > vd) findings.push(makeFinding("C007", propsName + ":" + props["simulation-distance"].line, "simulation-distance=" + sd + " exceeds view-distance=" + vd + ".", []));
+          }
+          if (paperGlobal) {
+            const ioT = paperGlobal["chunk-system.io-threads"];
+            if (ioT && (Number(ioT.value) === 0 || Number(ioT.value) < -1)) {
+              findings.push(makeFinding("C018", paperName + ":" + ioT.line, "chunk-system.io-threads is " + ioT.value + " (default -1); 0 disables dedicated async region I/O.", []));
+            }
+            const wkT = paperGlobal["chunk-system.worker-threads"];
+            if (wkT && (Number(wkT.value) === 0 || Number(wkT.value) === 1 || Number(wkT.value) < -1)) {
+              findings.push(makeFinding("C018", paperName + ":" + wkT.line, "chunk-system.worker-threads is " + wkT.value + " (default -1), serialising Moonrise chunk workers.", []));
+            }
+          }
+        }
+
+        findings.sort((a, b) => (SEV_RANK[b.severity] - SEV_RANK[a.severity]) || a.ruleId.localeCompare(b.ruleId));
+        lastState = { artifacts: artifacts.length, facts, findings };
+        renderState();
+      }
+
+      function renderState() {
+        document.getElementById("statFiles").textContent = String(lastState.artifacts);
+        const counts = { blocker: 0, critical: 0, warning: 0, info: 0 };
+        for (const f of lastState.findings) counts[f.severity] = (counts[f.severity] || 0) + 1;
+        document.getElementById("statBlocker").textContent = String(counts.blocker);
+        document.getElementById("statCritical").textContent = String(counts.critical);
+        document.getElementById("statWarning").textContent = String(counts.warning);
+        document.getElementById("statInfo").textContent = String(counts.info);
+
+        const factsBox = document.getElementById("factsBox");
+        const factEntries = Object.entries(lastState.facts);
+        if (factEntries.length) {
+          factsBox.style.display = "flex";
+          factsBox.innerHTML = "";
+          for (const [k, v] of factEntries) {
+            const sp = document.createElement("span");
+            const b = document.createElement("b");
+            b.textContent = k + ": ";
+            sp.appendChild(b);
+            sp.appendChild(document.createTextNode(v));
+            factsBox.appendChild(sp);
+          }
+        } else {
+          factsBox.style.display = "none";
+        }
+
+        const list = document.getElementById("findingsList");
+        list.innerHTML = "";
+        if (lastState.artifacts > 0 && lastState.findings.length === 0) {
+          const ok = document.createElement("div");
+          ok.className = "clean-banner";
+          ok.textContent = "No findings reported across " + lastState.artifacts + " inspected artifact(s).";
+          list.appendChild(ok);
+          return;
+        }
+        for (const f of lastState.findings) {
+          const card = document.createElement("div");
+          card.className = "finding sev-" + f.severity;
+          const head = document.createElement("div");
+          head.className = "finding-head";
+
+          const badge = document.createElement("span");
+          badge.className = "badge";
+          badge.textContent = f.severity;
+          const rid = document.createElement("span");
+          rid.className = "rule-id";
+          rid.textContent = f.ruleId;
+          const title = document.createElement("span");
+          title.className = "finding-title";
+          title.textContent = f.title;
+          const loc = document.createElement("span");
+          loc.className = "finding-loc";
+          loc.textContent = f.location;
+          head.append(badge, rid, title, loc);
+
+          const detail = document.createElement("div");
+          detail.className = "finding-detail";
+          detail.textContent = f.detail;
+          card.append(head, detail);
+
+          if (f.evidence && f.evidence.length) {
+            const pre = document.createElement("div");
+            pre.className = "evidence";
+            pre.textContent = f.evidence.join("\n");
+            card.appendChild(pre);
+          }
+          if (f.fix) {
+            const fix = document.createElement("div");
+            fix.className = "fix-line";
+            fix.textContent = "Fix: " + f.fix;
+            card.appendChild(fix);
+          }
+          if (f.provenance) {
+            const prov = document.createElement("div");
+            prov.className = "prov-line";
+            prov.textContent = "Source: " + f.provenance;
+            card.appendChild(prov);
+          }
+          list.appendChild(card);
+        }
+      }
+
+      async function readUploadedFile(file) {
+        if (file.name.toLowerCase().endsWith(".gz") && typeof DecompressionStream !== "undefined") {
+          const ds = new DecompressionStream("gzip");
+          const stream = file.stream().pipeThrough(ds);
+          const text = await new Response(stream).text();
+          return { name: file.name, text };
+        }
+        return { name: file.name, text: await file.text() };
+      }
+
+      async function handleFiles(fileList) {
+        const items = [];
+        for (const f of fileList) items.push(await readUploadedFile(f));
+        if (items.length) {
+          document.getElementById("pasteInput").value = items[0].text.slice(0, 8000);
+          runAudit(items);
+        }
+      }
+
+      function downloadBlob(filename, content) {
+        const blob = new Blob([content], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = filename;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      const dropzone = document.getElementById("dropzone");
+      const fileInput = document.getElementById("fileInput");
+      dropzone.addEventListener("click", () => fileInput.click());
+      dropzone.addEventListener("dragover", e => { e.preventDefault(); dropzone.classList.add("dragover"); });
+      dropzone.addEventListener("dragleave", () => dropzone.classList.remove("dragover"));
+      dropzone.addEventListener("drop", e => {
+        e.preventDefault();
+        dropzone.classList.remove("dragover");
+        if (e.dataTransfer.files.length) handleFiles(e.dataTransfer.files);
+      });
+      fileInput.addEventListener("change", () => { if (fileInput.files.length) handleFiles(fileInput.files); });
+
+      document.querySelectorAll("[data-preset]").forEach(btn => {
+        btn.addEventListener("click", () => {
+          const preset = PRESETS[btn.getAttribute("data-preset")];
+          document.getElementById("pasteInput").value = preset.map(p => "# === " + p.name + " ===\n" + p.text).join("\n\n");
+          runAudit(preset);
+        });
+      });
+
+      document.getElementById("runPasteBtn").addEventListener("click", () => {
+        const raw = document.getElementById("pasteInput").value.trim();
+        if (!raw) return;
+        runAudit([{ name: "pasted-input.log", text: raw }]);
+      });
+
+      document.getElementById("clearBtn").addEventListener("click", () => {
+        document.getElementById("pasteInput").value = "";
+        lastState = { artifacts: 0, facts: {}, findings: [] };
+        renderState();
+      });
+
+      document.getElementById("exportJsonBtn").addEventListener("click", () => {
+        downloadBlob("serverdoctor-report.json", JSON.stringify({
+          schema: 1,
+          tool: "serverdoctor-web",
+          toolVersion: "0.3.0",
+          facts: lastState.facts,
+          findings: lastState.findings
+        }, null, 2));
+      });
+
+      document.getElementById("exportSarifBtn").addEventListener("click", () => {
+        const ruleIds = [...new Set(lastState.findings.map(f => f.ruleId))];
+        const sarif = {
+          "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+          version: "2.1.0",
+          runs: [{
+            tool: {
+              driver: {
+                name: "ServerDoctor",
+                version: "0.3.0",
+                informationUri: "https://github.com/SalyyS1/serverdoctor",
+                rules: ruleIds.map(id => ({
+                  id,
+                  name: (RULES[id]?.title || id).replace(/[^A-Za-z0-9]+/g, ""),
+                  shortDescription: { text: RULES[id]?.title || id }
+                }))
+              }
+            },
+            results: lastState.findings.map(f => {
+              const m = f.location.match(/^(.+?):(\d+)/);
+              return {
+                ruleId: f.ruleId,
+                level: (f.severity === "blocker" || f.severity === "critical") ? "error" : (f.severity === "warning" ? "warning" : "note"),
+                message: { text: f.detail + (f.fix ? (" Fix: " + f.fix) : "") },
+                locations: [{
+                  physicalLocation: {
+                    artifactLocation: { uri: (m ? m[1] : f.location).replace(/^\/+/, ""), uriBaseId: "%SRCROOT%" },
+                    region: { startLine: m ? Number(m[2]) : 1 }
+                  }
+                }]
+              };
+            })
+          }]
+        };
+        downloadBlob("serverdoctor.sarif", JSON.stringify(sarif, null, 2));
+      });
+
+      // Boot with Folia sample so the analyzer is immediately informative on load.
+      const initial = PRESETS.folia;
+      document.getElementById("pasteInput").value = initial.map(p => "# === " + p.name + " ===\n" + p.text).join("\n\n");
+      runAudit(initial);
+    })();
+  </script>
+</body>
+</html>

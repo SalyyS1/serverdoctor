@@ -9,7 +9,7 @@ import java.time.Instant
 import java.time.format.DateTimeParseException
 
 /**
- * Audits a plugins directory: what is installed, what is broken about the set, and — when asked — what
+ * Audits a plugins directory: what is installed, what is broken about the set, and - when asked - what
  * the public indexes say about where each file came from.
  *
  * The provenance half is opt-in because it is the only thing in this tool that talks to the network.

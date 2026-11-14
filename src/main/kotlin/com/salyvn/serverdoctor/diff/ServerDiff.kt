@@ -10,8 +10,8 @@ import com.salyvn.serverdoctor.plugins.PluginJar
  * Compares two servers.
  *
  * Findings are worded as "left has X, right has Y" and never as "right is wrong", because the tool has
- * no way to know which side is the good one. Keys that are expected to differ between two machines —
- * ports, addresses, secrets, the seed — are skipped, because a diff that lists them buries the ones
+ * no way to know which side is the good one. Keys that are expected to differ between two machines -
+ * ports, addresses, secrets, the seed - are skipped, because a diff that lists them buries the ones
  * that matter.
  */
 class ServerDiff {

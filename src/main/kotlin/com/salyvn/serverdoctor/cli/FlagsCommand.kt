@@ -13,7 +13,7 @@ import com.salyvn.serverdoctor.flags.StartScriptReader
 import java.nio.file.Files
 
 /**
- * `serverdoctor flags <script>` or `--command "java -Xmx..."` — audit the JVM command line.
+ * `serverdoctor flags <script>` or `--command "java -Xmx..."` - audit the JVM command line.
  */
 class FlagsCommand : ReportCommand("flags") {
 

@@ -19,7 +19,7 @@ import com.salyvn.serverdoctor.plugins.PluginIndex
  *
  * The second is attribution. Naming the wrong plugin is worse than naming none, so each finding says
  * how it was attributed: from the bracketed logger label, from the server's own blame message, or
- * from a stack frame — and when a plugins directory is supplied, the label and the frame are checked
+ * from a stack frame - and when a plugins directory is supplied, the label and the frame are checked
  * against what is actually installed instead of being guessed at.
  */
 class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
@@ -42,6 +42,7 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
         var firstTimestamp: String? = null
         var lastTimestamp: String? = null
         var watchdogThread: String? = null
+        var watchdogTargetKey: Key? = null
         var watchdogHitLine = 0
 
         fun record(rule: Rule, discriminator: String, line: Int, detail: String, evidence: List<String>) {
@@ -71,9 +72,10 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
                 val stale = event.startLine - watchdogHitLine > WATCHDOG_DUMP_WINDOW
                 if (!sameThread || stale) {
                     watchdogThread = null
+                    watchdogTargetKey = null
                 } else {
                     val frame = StackFrame.parse(event.message)
-                    val target = hits[Key(LogRules.WATCHDOG_FIRED.id, "watchdog")]
+                    val target = watchdogTargetKey?.let { hits[it] }
                     if (frame != null && target != null && target.evidence.size < MAX_EVIDENCE) {
                         val owner = plugins.owningPlugin(frame.className)
                         val suffix = owner?.descriptor?.name?.let { "   <- $it" } ?: ""
@@ -86,8 +88,11 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
                 val match = detector.detect(event, plugins) ?: continue
                 explained = true
                 record(detector.rule, match.discriminator, event.startLine, match.detail, match.evidence)
-                if (detector.rule.id == LogRules.WATCHDOG_FIRED.id) {
+                if (detector.rule.id == LogRules.WATCHDOG_FIRED.id ||
+                    detector.rule.id == LogRules.FOLIA_REGION_STALL.id
+                ) {
                     watchdogThread = event.thread ?: "unknown"
+                    watchdogTargetKey = Key(detector.rule.id, match.discriminator)
                     watchdogHitLine = event.startLine
                 }
             }

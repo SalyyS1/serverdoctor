@@ -31,8 +31,8 @@ data class ListedEntry(
  *
  * These files are written by the server and read again on reload, so they are normally well formed;
  * every problem worth reporting in them comes from somebody editing them by hand while the server was
- * down. That is why the reader is deliberately tolerant — it collects what is there and lets the audit
- * decide what is wrong — and why an entry that is a bare string rather than an object is kept rather
+ * down. That is why the reader is deliberately tolerant - it collects what is there and lets the audit
+ * decide what is wrong - and why an entry that is a bare string rather than an object is kept rather
  * than dropped.
  */
 class PlayerListFile(

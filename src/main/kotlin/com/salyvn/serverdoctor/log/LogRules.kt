@@ -188,7 +188,7 @@ object LogRules {
         title = "This log carries vanilla's overload warning, which Paper does not emit",
         rationale = "Paper deletes `Can't keep up! Is the server overloaded?` and replaces the tick " +
             "loop with catch-up logic bounded by misc.catchup-ticks. Seeing the line therefore says " +
-            "the server is CraftBukkit, Spigot, vanilla or a fork that kept it — and on Paper its " +
+            "the server is CraftBukkit, Spigot, vanilla or a fork that kept it - and on Paper its " +
             "absence says nothing about tick health.",
         provenance = TICK_LOOP,
         fix = "Judge tick health with a profiler rather than with this line. On Paper, use spark.",
@@ -217,6 +217,92 @@ object LogRules {
         fix = "Read the trace. If a plugin package appears in it, start with that plugin.",
     )
 
+    val FOLIA_TICK_THREAD_VIOLATION = Rule(
+        id = "L017",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "A plugin violated Folia's region TickThread ownership check",
+        rationale = "Folia partitions the world across concurrent TickRegionThreads so no single main " +
+            "thread owns every chunk and entity. Mutating or reading world state off the owning region " +
+            "thread, calling synchronous Entity.teleport instead of teleportAsync, or scheduling tasks " +
+            "on legacy CraftScheduler throws immediately or corrupts neighbouring regions.",
+        provenance = "PaperMC/Folia ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread, " +
+            "CraftEntity.teleport, and CraftScheduler",
+        fix = "Dispatch the work onto Folia's RegionScheduler, EntityScheduler, or GlobalRegionScheduler, " +
+            "and replace synchronous teleport calls with teleportAsync.",
+    )
+
+    val FOLIA_REGION_STALL = Rule(
+        id = "L018",
+        area = RuleArea.LOG,
+        severity = Severity.BLOCKER,
+        title = "A Folia region tick thread stalled past the watchdog timeout",
+        rationale = "Folia monitors each active TickRegionThread independently from other regions. When " +
+            "one region thread blocks on synchronous network I/O, lock contention, or unbounded world " +
+            "iteration, Folia's regional watchdog dumps that region thread and stops the server before " +
+            "cross-region state diverges.",
+        provenance = "PaperMC/Folia folia-server/src/main/java/io/papermc/paper/threadedregions/FoliaWatchdogThread.java",
+        fix = "Inspect the stalled TickRegionThread stack frames below the banner and move blocking I/O " +
+            "or lock waits onto AsyncScheduler.",
+    )
+
+    val GC_PAUSE_OVER_TICK = Rule(
+        id = "L019",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Stop-the-world garbage collection pause exceeded a server tick",
+        rationale = "Minecraft budgets 50 milliseconds per tick at 20 TPS. When a stop-the-world collector " +
+            "pause exceeds 50 ms, every tick and network thread freezes for the entire pause duration, " +
+            "causing movement rubber-banding, delayed keepalives, and catch-up tick bursts afterwards.",
+        provenance = "OpenJDK HotSpot Unified GC Logging (JEP 158 / JEP 271): pause duration measured " +
+            "against the 50 ms server tick budget",
+        fix = "Size -Xms equal to -Xmx, apply Paper's documented G1GC tuning flags or Generational ZGC " +
+            "(-XX:+UseZGC -XX:+ZGenerational) on heaps of 12 GiB or more, and profile allocations with spark.",
+    )
+
+    val GC_HEAP_PRESSURE = Rule(
+        id = "L020",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Garbage collector hit severe heap pressure, Full GC, or allocation stall",
+        rationale = "A Full GC compaction pause, G1 To-space exhausted evacuation failure, ZGC Allocation " +
+            "Stall, or post-GC live set above 85 percent of -Xmx means mutator threads are allocating " +
+            "faster than concurrent collection can reclaim memory. Multi-second freezes and " +
+            "OutOfMemoryError follow shortly.",
+        provenance = "OpenJDK HotSpot G1CollectedHeap (Pause Full / To-space exhausted) and ZGC " +
+            "ZAllocationStall (JEP 439)",
+        fix = "Capture a spark heap summary to locate retained chunks or plugin caches, or raise -Xmx " +
+            "if host memory leaves at least 25 percent post-GC headroom.",
+    )
+
+    val SYNC_CHUNK_LOAD = Rule(
+        id = "L021",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Synchronous chunk load or generation blocked a tick thread",
+        rationale = "Calling World.getChunkAt, Location.getChunk, or Block lookups inside an unloaded " +
+            "chunk forces the tick thread to wait synchronously on Moonrise disk reads or world " +
+            "generation stages instead of ticking entities and players.",
+        provenance = "PaperMC/Paper paper-server/src/main/java/io/papermc/paper/chunk/system/scheduling/" +
+            "ChunkTaskScheduler.java and SyncLoadFinder.java",
+        fix = "Switch the named plugin call path to World.getChunkAtAsync and pre-generate world borders " +
+            "before opening the server.",
+    )
+
+    val CHUNK_IO_BOTTLENECK = Rule(
+        id = "L022",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Paper chunk system I/O error, oversized chunk, or save queue stall",
+        rationale = "Moonrise's RegionFileIOThread serialises chunk reads and Anvil .mca sector writes " +
+            "asynchronously. Failed chunk saves, oversized chunk external .mcc overflows, or stalled " +
+            "I/O queues risk chunk rollbacks, duplicate entities, or hung shutdowns.",
+        provenance = "PaperMC/Paper ca.spottedleaf.moonrise.patches.chunk_system.io.MoonriseRegionFileIO " +
+            "and net.minecraft.world.level.chunk.storage.RegionFile",
+        fix = "Check free disk space, filesystem permissions, and storage I/O latency, and inspect " +
+            "oversized chunk coordinates for excessive block-entity or book NBT data.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -234,5 +320,11 @@ object LogRules {
         NOT_PAPER_TICK_WARNING,
         REPEATED_EXCEPTION,
         UNCAUGHT_SEVERE,
+        FOLIA_TICK_THREAD_VIOLATION,
+        FOLIA_REGION_STALL,
+        GC_PAUSE_OVER_TICK,
+        GC_HEAP_PRESSURE,
+        SYNC_CHUNK_LOAD,
+        CHUNK_IO_BOTTLENECK,
     )
 }

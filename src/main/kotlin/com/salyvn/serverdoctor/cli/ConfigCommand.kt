@@ -10,7 +10,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import java.nio.file.Files
 
 /**
- * `serverdoctor config <server-dir>` — audit a server's own configuration.
+ * `serverdoctor config <server-dir>` - audit a server's own configuration.
  *
  * Individual files are accepted as well, but a directory is the useful form: the checks that matter
  * are the ones that compare `server.properties` against `paper-global.yml` against `spigot.yml`, and

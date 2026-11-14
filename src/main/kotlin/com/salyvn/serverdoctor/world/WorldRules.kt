@@ -18,7 +18,7 @@ object WorldRules {
     private const val MIGRATION = "PaperMC/Paper paper-server/src/main/java/io/papermc/paper/world/migration/WorldFolderMigration.java:33-37,108"
 
     private const val REGION_HEADER = "PaperMC/Paper paper-server/patches/features/" +
-        "0026-Attempt-to-recalculate-regionfile-header-if-it-is-co.patch:176,313 — the first two " +
+        "0026-Attempt-to-recalculate-regionfile-header-if-it-is-co.patch:176,313 - the first two " +
         "4 KiB sectors are the header, and each of the 1024 locations is sector offset << 8 | length " +
         "in sectors"
 
@@ -30,7 +30,7 @@ object WorldRules {
         rationale = "level.dat holds the seed, the generator settings and the spawn. Without it the " +
             "server treats the folder as a new world and generates a different one around the chunks " +
             "that are already there.",
-        provenance = "$MIGRATION — the level data is read from the Data compound of level.dat",
+        provenance = "$MIGRATION - the level data is read from the Data compound of level.dat",
         fix = "Restore level.dat from a backup before starting the server. If only level.dat_old " +
             "survives, copy that to level.dat.",
     )
@@ -63,7 +63,7 @@ object WorldRules {
         severity = Severity.WARNING,
         title = "Worlds on this server were saved by different game versions",
         rationale = "Each world records the version that last wrote it. When they disagree, one of them " +
-            "was not loaded after the server was upgraded — usually a world that is configured but " +
+            "was not loaded after the server was upgraded - usually a world that is configured but " +
             "never visited, and it will be upgraded the moment somebody enters it.",
         provenance = "level.dat Data.DataVersion and Data.Version.Name, compared between worlds",
         fix = "Load each world once after an upgrade, or take the backup now rather than after the " +
@@ -149,7 +149,7 @@ object WorldRules {
         title = "A region file's chunk table points outside the file",
         rationale = "A location names a sector that is inside the header or past the end of the file, so " +
             "the chunk it describes cannot be read from where it says it is. Paper notices this on load, " +
-            "warns, and rebuilds the header by scanning the file — which is a recovery, and recoveries " +
+            "warns, and rebuilds the header by scanning the file - which is a recovery, and recoveries " +
             "are better done from a copy.",
         provenance = "$REGION_HEADER; the sector-overlaps-header case is the warning in paper-server/" +
             "patches/sources/net/minecraft/world/level/chunk/storage/RegionFile.java.patch:15-17",

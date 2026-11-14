@@ -13,7 +13,7 @@ import com.salyvn.serverdoctor.plugins.PluginsAudit
 import java.nio.file.Files
 
 /**
- * `serverdoctor plugins <dir>` — inventory a plugins directory and check the set for the problems that
+ * `serverdoctor plugins <dir>` - inventory a plugins directory and check the set for the problems that
  * only exist between plugins: a missing dependency, two jars claiming one name, a library that is not
  * a plugin at all.
  *

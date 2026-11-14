@@ -15,7 +15,7 @@ import java.nio.file.Path
  *
  * What it deliberately does not do is follow `@argfile` references or expand variables. Guessing at
  * either would produce a flag list that is not the one the server runs, and a wrong flag report is
- * worse than none — rule F012 says so out loud instead.
+ * worse than none - rule F012 says so out loud instead.
  */
 object StartScriptReader {
 

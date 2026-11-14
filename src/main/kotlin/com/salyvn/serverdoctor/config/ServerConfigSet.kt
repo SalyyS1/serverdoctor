@@ -10,7 +10,7 @@ import java.nio.file.Path
  *
  * Which files exist is itself information: `config/paper-global.yml` present means a modern Paper;
  * `paper.yml` in the root means a migration that was never finished; `purpur.yml` means a fork whose
- * defaults differ from the ones every guide quotes. Nothing is invented when a file is absent — the
+ * defaults differ from the ones every guide quotes. Nothing is invented when a file is absent - the
  * audit simply has less to say.
  */
 class ServerConfigSet(

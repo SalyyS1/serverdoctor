@@ -75,8 +75,8 @@ object ConfigRules {
         area = RuleArea.CONFIG,
         severity = Severity.WARNING,
         title = "The console holds every permission",
-        rationale = "With has-all-permissions on, anything that can write to the console — a badly " +
-            "scoped RCON, a panel integration, a plugin that pipes input — acts with full authority " +
+        rationale = "With has-all-permissions on, anything that can write to the console - a badly " +
+            "scoped RCON, a panel integration, a plugin that pipes input - acts with full authority " +
             "rather than with the permissions it was granted.",
         provenance = "$GLOBAL:149 (console.has-all-permissions, default false)",
         fix = "Leave it off and grant the console the permissions it actually needs.",
@@ -219,6 +219,20 @@ object ConfigRules {
         fix = "Re-enable spark, or install it separately, before you need it.",
     )
 
+    val CHUNK_SYSTEM_BOTTLENECK = Rule(
+        id = "C018",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper chunk-system threads or rate limits create an I/O bottleneck",
+        rationale = "Paper's Moonrise chunk system defaults io-threads and worker-threads to -1 so " +
+            "pool sizes track the machine's CPU count. Setting io-threads to 0 disables dedicated " +
+            "asynchronous region I/O, and pinning worker-threads to 1 or below -1 serialises chunk " +
+            "generation and lighting onto a single bottleneck queue.",
+        provenance = "$GLOBAL (ChunkSystem: io-threads=-1, worker-threads=-1)",
+        fix = "Reset chunk-system.io-threads and chunk-system.worker-threads to -1 unless dedicated " +
+            "benchmarking on this host proved a specific pool count.",
+    )
+
     val all: List<Rule> = listOf(
         OFFLINE_MODE_NO_PROXY,
         VELOCITY_SECRET_EMPTY,
@@ -237,5 +251,6 @@ object ConfigRules {
         WORLD_DIRECTORY_MISSING,
         ANTI_XRAY_ENABLED,
         SPARK_DISABLED,
+        CHUNK_SYSTEM_BOTTLENECK,
     )
 }

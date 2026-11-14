@@ -58,7 +58,7 @@ object CrashRules {
         severity = Severity.WARNING,
         title = "The crash happened while ticking one specific object",
         rationale = "The report names the entity, block entity or chunk being ticked. That object is " +
-            "still saved in the world, so the same crash happens again as soon as it is loaded — which " +
+            "still saved in the world, so the same crash happens again as soon as it is loaded - which " +
             "is why a restart appears to fix it until somebody walks back there.",
         provenance = "The report's Description and its Entity/Block entity being ticked section",
         fix = "Note the coordinates from the section below and remove or repair that object before the " +

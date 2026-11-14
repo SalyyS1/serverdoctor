@@ -1,11 +1,15 @@
 # serverdoctor
 
 [![build](https://github.com/SalyyS1/serverdoctor/actions/workflows/build.yml/badge.svg)](https://github.com/SalyyS1/serverdoctor/actions/workflows/build.yml)
+[![Browser Triage](https://img.shields.io/badge/web_triage-zero_backend-0284c7)](https://salyys1.github.io/serverdoctor/)
 
-Diagnostics for a Minecraft server, read from the artifacts it has already produced: its log, its
-configuration files, its start script, the jars in its plugins directory, its worlds, its crash
-reports and its access lists. It does not start a server, connect to one, or load a line of plugin
-code, and it writes nothing except the report you ask for.
+Diagnostics for a Minecraft server, read from the artifacts it has already produced: its log (including
+Unified JVM GC logs and rolled `.log.gz` files), its configuration files, its start script, the jars in
+its plugins directory, its worlds, its crash reports and its access lists. It does not start a server,
+connect to one, or load a line of plugin code, and it writes nothing except the report you ask for.
+
+For quick zero-install log, crash-report, JVM flag, and config inspection directly in the browser (100%
+local client-side JavaScript, zero file uploads), open **[salyys1.github.io/serverdoctor](https://salyys1.github.io/serverdoctor/)**.
 
 That constraint is the point. The moment you need a diagnosis is the moment the server is down, the
 host has handed you a folder and a log, and nothing can be reproduced. Everything here works on that
@@ -15,7 +19,7 @@ folder, offline, on the same box that produced it.
 | --- | --- |
 | `scan` | Everything below, over one server directory, in one pass. |
 | `log` | What went wrong, which plugin is to blame, and what to do about it. |
-| `config` | Is this server exposed or misconfigured — judged across `server.properties`, `bukkit.yml`, `spigot.yml` and the Paper configs together, not one file at a time? |
+| `config` | Is this server exposed or misconfigured - judged across `server.properties`, `bukkit.yml`, `spigot.yml` and the Paper configs together, not one file at a time? |
 | `flags` | Do the JVM flags in the start script do what whoever wrote them thought? |
 | `plugins` | What is installed, what is broken about the set, and where did each jar come from? |
 | `world` | Is every world intact, is every region file's chunk table pointing at sectors it has, and were the worlds all last saved by the same game version? |
@@ -33,12 +37,12 @@ Each audit exists because the server does not tell you the thing you need to kno
 
 - **A log tells you what happened, not who did it.** Paper names the plugin when a listener throws,
   and says nothing when a plugin's thread corrupts a chunk twenty minutes later. Findings here carry
-  the attribution and say how it was made — from the logger prefix, from the server's own blame line,
+  the attribution and say how it was made - from the logger prefix, from the server's own blame line,
   or from a stack frame matched against the jars you actually have installed.
 - **The absence of a warning is not good news.** Paper deletes vanilla's
   `Can't keep up! Is the server overloaded?` and replaces the tick loop with catch-up logic, so on
   Paper that line never appears no matter how far behind the server falls. If your log has it, your
-  log is not from Paper — which is itself worth knowing before you follow Paper-specific advice.
+  log is not from Paper - which is itself worth knowing before you follow Paper-specific advice.
 - **The line that stopped your server can be logged at INFO.** `You need to agree to the EULA in
   order to run the server` is INFO, so a panel that surfaces only errors shows a clean shutdown and
   no reason.
@@ -50,7 +54,7 @@ Each audit exists because the server does not tell you the thing you need to kno
   it is written by the plugin's author.
 - **A world that nobody has entered since the upgrade is still on the old version.** Each world
   records the game version that last wrote it, and nothing on a running server points out that two of
-  its worlds disagree — the conversion happens the moment somebody walks in.
+  its worlds disagree - the conversion happens the moment somebody walks in.
 - **A crash report outlives the server that wrote it.** It carries the game version, the memory
   figures and the full `JVM Flags:` line, so a file mailed by a host is enough to audit the flags of a
   machine you will never see. Five reports with one description is a loop, and no single report says
@@ -62,7 +66,7 @@ Each audit exists because the server does not tell you the thing you need to kno
   plugin version, or one jar that claims a version and is not the same bytes. `diff` prints the list
   and takes no side about which box is the good one.
 
-Every rule states one fact and records where that fact came from — a file and line in Paper or Folia,
+Every rule states one fact and records where that fact came from - a file and line in Paper or Folia,
 a JEP, an API response. `serverdoctor rules` prints the catalogue with those sources, so a finding can
 be argued with instead of believed.
 
@@ -116,10 +120,73 @@ java -jar serverdoctor.jar diff /srv/staging /srv/production
 
 # Every rule, with its rationale and its source
 java -jar serverdoctor.jar rules --area log
+
+# Native OASIS SARIF v2.1.0 or JSON for CI gates and GitHub Code Scanning
+java -jar serverdoctor.jar scan /srv/mc --format sarif -o serverdoctor.sarif --fail-on critical
+java -jar serverdoctor.jar log /srv/mc/logs/latest.log --json -o triage.json
 ```
 
-Output is plain text by default, `--format json` for a machine, `-o file` to write it, and
-`--fail-on critical` (the default) decides the exit code so a scan can gate a deploy.
+Output is plain text by default, `--format json` (or `--json`) for structured JSON, `--format sarif`
+(or `--sarif <file>`) for OASIS SARIF v2.1.0, `-o file` to write it, and `--fail-on critical` (the
+default) decides the exit code so a scan can gate a deploy.
+
+## Architecture
+
+`serverdoctor` separates raw artifact readers from rule evaluation and output reporters so every surface
+(CLI, GitHub Action, SARIF uploader, and stdio MCP server) shares one deterministic rule catalogue:
+
+1. **Read-only artifact parsers (`input/`, `log/LogParser`, `flags/JvmCommandLine`, `world/RegionFileHeader`)**:
+   - `LogParser` normalises Paper, dated/panel, legacy CraftBukkit, Docker stdout wrappers, and OpenJDK
+     JEP 158 Unified JVM Logging (`[uptime][level][gc]`) into structured `LogEvent` records.
+   - `YamlSource` composes SnakeYAML AST nodes with `SafeConstructor` (zero object instantiation) while
+     preserving 1-based line numbers and duplicate keys that standard loaders silently overwrite.
+   - `RegionFileHeader` inspects only the 8 KiB Anvil `.mca` sector table without decompressing chunks.
+2. **Eight cross-artifact audits (`log`, `config`, `flags`, `plugins`, `world`, `crash`, `perms`, `diff`)**:
+   - **Folia region threading**: detects `TickThread.ensureTickThread` off-region world access, synchronous
+     `Entity.teleport` (`teleportAsync` required), unsupported `CraftScheduler` calls (`L017`), and
+     per-region `FoliaWatchdogThread` stalls (`L018`) with plugin stack attribution.
+   - **G1GC & Generational ZGC**: detects stop-the-world GC pauses exceeding the 50 ms server tick budget
+     (`L019`), Full GC / `To-space exhausted` / ZGC `Allocation Stall` / >85% post-GC live heap thrashing
+     (`L020`), legacy or under-provisioned ZGC flags (`F013`), and inverted G1 young-gen bounds (`F014`).
+   - **Paper Moonrise chunk system**: detects synchronous chunk loads blocking tick threads (`L021`),
+     regionfile save failures and `.mcc` oversized chunk overflows (`L022`), and bottlenecked
+     `chunk-system.io-threads` / `worker-threads` settings (`C018`).
+3. **Reporters (`ConsoleReporter`, `JsonReporter`, `SarifReporter`, `McpServer`)**:
+   - Emits grouped terminal diagnostics, flat schema-v1 JSON, OASIS SARIF v2.1.0 with deduplicated driver
+     rules and 1-based line regions, or JSON-RPC 2.0 MCP tool responses over stdio.
+
+## GitHub Action and Code Scanning (SARIF v2.1.0)
+
+Gate server configurations, start scripts, or integration-test server directories in CI and upload findings
+directly to the GitHub **Security -> Code scanning** tab:
+
+```yaml
+name: Server Diagnostics
+on: [push, pull_request]
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: SalyyS1/serverdoctor@v0.3.0
+        with:
+          target: ./server
+          mode: scan
+          fail-on: critical
+          sarif-file: serverdoctor.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: serverdoctor.sarif
+```
 
 ## What the output looks like
 
@@ -221,7 +288,7 @@ server: /srv/mc
 
 What is *not* reported there matters as much: `online-mode=false` produces no finding, because
 Velocity forwarding is configured, and that combination is correct for a backend server. The rule for
-offline mode fires only when nothing in front of the server is authenticating players — which is the
+offline mode fires only when nothing in front of the server is authenticating players - which is the
 false positive this audit exists to avoid.
 
 One crash report, read from a file with no server attached to it. The report carries the flags the
@@ -303,7 +370,7 @@ Stated plainly, because a tool that reports nothing looks the same as a tool tha
   jars: by digest on Modrinth, and by project name on Hangar when a digest is not enough.
 - It does not judge tuning by taste. There is no rule saying your view distance is wrong, because the
   hardware it has to be right for is not in the folder.
-- It cannot verify a self-declaration. `folia-supported`, `api-version`, a plugin's own version — all
+- It cannot verify a self-declaration. `folia-supported`, `api-version`, a plugin's own version - all
   of it is what the author wrote. Only the file hash identifies a build.
 - Log and crash attribution is best effort and says which method it used. A shaded or relocated plugin
   can put a library's package in the frame you would otherwise blame, and the bracketed name in a log
@@ -313,7 +380,7 @@ Stated plainly, because a tool that reports nothing looks the same as a tool tha
   pretended at here.
 - `plugins --online` matching nothing is not a safety finding. Paid plugins, private builds and
   pruned releases all fail to match for ordinary reasons. A Hangar answer is weaker than a Modrinth one
-  by construction — Hangar has no digest endpoint, so it has to be asked by name — and the findings say
+  by construction - Hangar has no digest endpoint, so it has to be asked by name - and the findings say
   which one answered.
 
 ## With an AI agent
@@ -350,7 +417,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-Ninety-one rules across the eight audits. Every `source:` line names a file and line in Paper or
+One hundred rules across the eight audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 
@@ -371,7 +438,7 @@ serverdoctor is an independent project. It is not affiliated with, endorsed by o
 Mojang, Microsoft or Modrinth.
 
 No code was copied from any other project. Several solved a neighbouring problem first and are
-credited in [NOTICE](NOTICE) alongside the sources every rule's underlying fact was read from —
+credited in [NOTICE](NOTICE) alongside the sources every rule's underlying fact was read from -
 including [aternosorg/mclogs](https://github.com/aternosorg/mclogs), whose hosted analyser is the
 closest existing thing to the `log` command, [birdflop/botflop](https://github.com/birdflop/botflop),
 which answers configuration questions from timings reports, and
@@ -387,8 +454,8 @@ resource packs.
 
 | Tool | Purpose |
 | --- | --- |
-| [foliascan](https://github.com/SalyyS1/foliascan) | Bytecode and taint-flow verifier for Folia regionized multithreading (`CLI`, GitHub Action, and [browser JAR scanner](https://salyys1.github.io/foliascan/)). |
-| [pluginscope](https://github.com/SalyyS1/pluginscope) | Static audits for plugin JAR shading, Paper API version compatibility, `plugins/` stack conflicts, and resource packs (`CLI` + `mcp`). |
+| [foliascan](https://github.com/SalyyS1/foliascan) | Bytecode and taint-flow verifier for Folia regionized multithreading (`CLI`, SARIF v2.1.0 GitHub Action, and [browser JAR scanner](https://salyys1.github.io/foliascan/)). |
+| [pluginscope](https://github.com/SalyyS1/pluginscope) | Static audits for plugin JAR transitive shading collisions, `paper-plugin.yml` classloader isolation, Paper API compatibility, and [browser JAR inspector](https://salyys1.github.io/pluginscope/). |
 | [minecraftkit](https://github.com/SalyyS1/minecraftkit) | Offline RPG and Paper/Folia API catalog, 10 `/mc:*` coding agent skills, [web API explorer](https://salyys1.github.io/minecraftkit/), and stdio MCP server. |
 | [mcstage](https://github.com/SalyyS1/mcstage) | Standalone CLI that boots a real Paper, Folia, or Purpur server, installs a plugin, drives the console, and asserts on logs. |
 | [glyphsmith](https://github.com/SalyyS1/glyphsmith) | Resource pack font compiler turning PNGs and coordinates into Minecraft bitmap glyphs and negative-space shifts. |

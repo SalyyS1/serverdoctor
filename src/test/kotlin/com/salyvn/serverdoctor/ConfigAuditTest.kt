@@ -97,4 +97,28 @@ class ConfigAuditTest {
         assertTrue(findings.any { it.ruleId == "C009" }, "expected C009 in ${findings.map { it.ruleId }}")
         directory.toFile().deleteRecursively()
     }
+
+    @Test
+    fun `detects paper chunk-system io-threads and worker-threads bottlenecks`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-chunk-cfg")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-global.yml").toFile().writeText(
+                """
+                _version: 29
+                version: 29
+                chunk-system:
+                  io-threads: 0
+                  worker-threads: 1
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C018" }
+            assertEquals(2, findings.size, "expected C018 for io-threads=0 and worker-threads=1: $findings")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
 }

@@ -52,7 +52,7 @@ data class LogEvent(
 /** One `at ...` line of a stack trace. */
 data class StackFrame(val raw: String, val className: String, val method: String, val source: String?) {
 
-    /** `com.example.plugin` for `com.example.plugin.Listener` — empty for a default-package class. */
+    /** `com.example.plugin` for `com.example.plugin.Listener` - empty for a default-package class. */
     val packageName: String get() = className.substringBeforeLast('.', "")
 
     companion object {

@@ -29,12 +29,89 @@ object LogDetectors {
     private val ASYNC_REASON = Regex("""failed main thread check: (.+?)\s*$""")
     private val ASYNC_THROWN = Regex("""Asynchronous ([^!\n]+)!""")
 
+    private val FOLIA_STALL = Regex(
+        """(?:Tick region|Region thread|TickRegionThread)[^\n]*(?:stalled|has not responded|stopped responding)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val FOLIA_CHECK_MSG = Regex(
+        """(?:Cannot (?:read|modify|access|move|tick|get|add|remove) [^\n!]+(?:asynchronously|off[- ]main|off[- ]owning region)|Thread [^\n]+ failed main thread check: (Cannot [^\n]+)|Thread [^\n]+ failed region thread check: ([^\n]+))""",
+    )
+    private val GC_PAUSE = Regex(
+        """GC\((\d+)\)\s+Pause\s+([A-Za-z0-9 ()_-]+?)\s+(?:(\d+)([KMG])->(\d+)([KMG])\((\d+)([KMG])\)\s+)?(\d+(?:[.,]\d+)?)ms""",
+    )
+    private val ZGC_STALL = Regex("""Allocation Stall\s+\(([^)]+)\)\s+(\d+(?:[.,]\d+)?)ms""")
+    private val CHUNK_COORDS = Regex("""\((-?\d+,\s*-?\d+)\)""")
+
     /** Class file major 52 is Java 8, and each release adds one, so the release is major - 44. */
     private const val JAVA_CLASS_FILE_OFFSET = 44
+    private const val SERVER_TICK_MS = 50.0
+    private const val HIGH_LIVE_OCCUPANCY = 0.85
+
+    private fun isFoliaWatchdog(event: LogEvent): Boolean {
+        if (event.message.contains("DO NOT REPORT THIS TO FOLIA")) return true
+        if (FOLIA_STALL.containsMatchIn(event.fullText)) return true
+        val foliaThread = event.thread?.let {
+            it.contains("Folia", ignoreCase = true) || it.contains("Region Watchdog", ignoreCase = true)
+        } ?: false
+        return foliaThread && event.message.contains("stopped responding")
+    }
+
+    private fun extractFoliaTickThreadViolation(event: LogEvent): String? {
+        val text = event.fullText
+        if (text.contains("Must use teleportAsync while in region threading")) {
+            return "Entity.teleport (must use teleportAsync in region threading)"
+        }
+        if (text.contains("CraftScheduler") &&
+            (text.contains("UnsupportedOperationException") ||
+                text.contains("handleCraftSchedulerUnsupported") ||
+                text.contains("region threading", ignoreCase = true) ||
+                text.contains("Folia"))
+        ) {
+            return "Bukkit CraftScheduler task submission under Folia region threading"
+        }
+        FOLIA_CHECK_MSG.find(text)?.let { match ->
+            val specific = match.groupValues.drop(1).firstOrNull { it.isNotBlank() } ?: match.value
+            return specific.trim()
+        }
+        val hasTickThreadFrame = event.frames.any {
+            it.className.endsWith(".TickThread") && it.method.startsWith("ensureTickThread")
+        }
+        if (hasTickThreadFrame) {
+            val reason = ASYNC_REASON.find(event.message)?.groupValues?.get(1)?.trim()
+                ?: event.message.lineSequence().firstOrNull()?.take(100)
+                ?: "TickThread ownership check"
+            return reason
+        }
+        return null
+    }
+
+    private fun toBytes(amount: Long, unit: String): Long = when (unit.uppercase()) {
+        "K" -> amount * 1024L
+        "M" -> amount * 1024L * 1024L
+        "G" -> amount * 1024L * 1024L * 1024L
+        else -> amount
+    }
 
     val all: List<LogDetector> = listOf(
 
+        Signature(LogRules.FOLIA_REGION_STALL) { event, plugins ->
+            if (!isFoliaWatchdog(event)) return@Signature null
+            val blame = LogTriage.attribute(event, plugins)
+            val coords = CHUNK_COORDS.find(event.fullText)?.groupValues?.get(1)
+            DetectorMatch(
+                discriminator = "folia-region-stall",
+                detail = buildString {
+                    append("A Folia region tick thread stalled past the watchdog timeout")
+                    coords?.let { append(" around chunk ($it)") }
+                    blame?.let { append(", with $it on the stack") }
+                    append(". Watchdog thread: ").append(event.thread ?: "Folia Watchdog")
+                },
+                evidence = event.frames.take(4).map { it.raw },
+            )
+        },
+
         Signature(LogRules.WATCHDOG_FIRED) { event, _ ->
+            if (isFoliaWatchdog(event)) return@Signature null
             if (!event.message.contains("The server has stopped responding")) return@Signature null
             DetectorMatch(
                 discriminator = "watchdog",
@@ -43,7 +120,22 @@ object LogDetectors {
             )
         },
 
+        Signature(LogRules.FOLIA_TICK_THREAD_VIOLATION) { event, plugins ->
+            val violation = extractFoliaTickThreadViolation(event) ?: return@Signature null
+            val blame = LogTriage.attribute(event, plugins)
+            DetectorMatch(
+                discriminator = "${violation.take(80)}@${blame ?: "unknown"}",
+                detail = buildString {
+                    append("\"").append(violation).append("\" violated Folia region thread ownership")
+                    if (blame != null) append(", reached from $blame")
+                    append(". Thread: ").append(event.thread ?: "unknown")
+                },
+                evidence = event.frames.take(4).map { it.raw },
+            )
+        },
+
         Signature(LogRules.ASYNC_API_MISUSE) { event, plugins ->
+            if (extractFoliaTickThreadViolation(event) != null) return@Signature null
             val reason = ASYNC_REASON.find(event.message)?.groupValues?.get(1)
                 ?: ASYNC_THROWN.find(event.fullText)?.groupValues?.get(1)
                 ?: return@Signature null
@@ -194,6 +286,126 @@ object LogDetectors {
                     append(", which Paper does not emit, so this log is from CraftBukkit, Spigot, ")
                     append("vanilla or a fork that kept the line.")
                 },
+            )
+        },
+
+        Signature(LogRules.GC_PAUSE_OVER_TICK) { event, _ ->
+            val match = GC_PAUSE.find(event.message) ?: return@Signature null
+            val pauseMs = match.groupValues[9].replace(',', '.').toDoubleOrNull() ?: return@Signature null
+            if (pauseMs < SERVER_TICK_MS) return@Signature null
+            val kind = match.groupValues[2].trim()
+            val phase = kind.substringBefore('(').trim().ifEmpty { "Pause" }
+            val heapSummary = if (match.groupValues[3].isNotEmpty()) {
+                "${match.groupValues[3]}${match.groupValues[4]}->${match.groupValues[5]}${match.groupValues[6]}(${match.groupValues[7]}${match.groupValues[8]})"
+            } else {
+                null
+            }
+            val formattedMs = String.format(java.util.Locale.ROOT, "%.1f", pauseMs)
+            DetectorMatch(
+                discriminator = "gc-pause-$phase",
+                detail = buildString {
+                    append("GC Pause ").append(kind).append(" froze the JVM for ").append(formattedMs).append(" ms")
+                    heapSummary?.let { append(" (heap ").append(it).append(")") }
+                    append('.')
+                },
+                evidence = listOf(event.message.trim()),
+            )
+        },
+
+        Signature(LogRules.GC_HEAP_PRESSURE) { event, _ ->
+            val text = event.message
+            ZGC_STALL.find(text)?.let { stall ->
+                val stalledThread = stall.groupValues[1]
+                val stallMs = stall.groupValues[2]
+                return@Signature DetectorMatch(
+                    discriminator = "zgc-allocation-stall",
+                    detail = "ZGC Allocation Stall blocked thread \"$stalledThread\" for ${stallMs} ms while waiting for free heap pages.",
+                    evidence = listOf(text.trim()),
+                )
+            }
+            if (text.contains("To-space exhausted", ignoreCase = true) ||
+                text.contains("Retried waiting for GCLocker too often", ignoreCase = true)
+            ) {
+                return@Signature DetectorMatch(
+                    discriminator = "gc-evacuation-exhausted",
+                    detail = "Collector evacuation reserve was exhausted under heavy allocation pressure: ${text.trim().take(140)}.",
+                    evidence = listOf(text.trim()),
+                )
+            }
+            val pause = GC_PAUSE.find(text) ?: return@Signature null
+            val kind = pause.groupValues[2].trim()
+            val isFullGc = kind.startsWith("Full", ignoreCase = true)
+            val afterAmount = pause.groupValues[5].toLongOrNull()
+            val afterUnit = pause.groupValues[6]
+            val capAmount = pause.groupValues[7].toLongOrNull()
+            val capUnit = pause.groupValues[8]
+            val occupancy = if (afterAmount != null && capAmount != null && capAmount > 0L) {
+                toBytes(afterAmount, afterUnit).toDouble() / toBytes(capAmount, capUnit).toDouble()
+            } else {
+                0.0
+            }
+            if (!isFullGc && occupancy < HIGH_LIVE_OCCUPANCY) return@Signature null
+            val pct = (occupancy * 100.0).toInt()
+            DetectorMatch(
+                discriminator = if (isFullGc) "gc-full" else "gc-high-occupancy",
+                detail = if (isFullGc) {
+                    "Full GC compaction pause ($kind) ran; heap is under severe pressure."
+                } else {
+                    "Post-GC live set remained at $pct% of capacity (${pause.groupValues[5]}$afterUnit of ${pause.groupValues[7]}$capUnit), indicating heap thrashing."
+                },
+                evidence = listOf(text.trim()),
+            )
+        },
+
+        Signature(LogRules.SYNC_CHUNK_LOAD) { event, plugins ->
+            val text = event.fullText
+            val syncSignalled = text.contains("Catching synchronous chunk load", ignoreCase = true) ||
+                text.contains("synchronous chunk load", ignoreCase = true) ||
+                text.contains("sync chunk load", ignoreCase = true) ||
+                event.frames.any { it.className.endsWith("SyncLoadFinder") }
+            if (!syncSignalled) return@Signature null
+            val blame = LogTriage.attribute(event, plugins)
+            val coords = CHUNK_COORDS.find(text)?.groupValues?.get(1)
+            DetectorMatch(
+                discriminator = "sync-chunk@${blame ?: "server"}",
+                detail = buildString {
+                    append("Synchronous chunk load stalled ")
+                    append(event.thread ?: "a tick thread")
+                    coords?.let { append(" at chunk ($it)") }
+                    blame?.let { append(", triggered by $it") }
+                    append('.')
+                },
+                evidence = event.frames.take(4).map { it.raw }.ifEmpty { listOf(event.message.trim()) },
+            )
+        },
+
+        Signature(LogRules.CHUNK_IO_BOTTLENECK) { event, plugins ->
+            val msg = event.message
+            val full = event.fullText
+            val isChunkIo = msg.contains("Failed to save chunk") ||
+                msg.contains("Failed to load chunk") ||
+                msg.contains("Saving oversized chunk") ||
+                msg.contains("Oversized chunk") ||
+                msg.contains("Timed out waiting for chunk") ||
+                full.contains("MoonriseRegionFileIO") ||
+                full.contains("RegionFileIOThread")
+            if (!isChunkIo) return@Signature null
+            val blame = LogTriage.attribute(event, plugins)
+            val coords = CHUNK_COORDS.find(full)?.groupValues?.get(1)
+            val kind = when {
+                msg.contains("oversized chunk", ignoreCase = true) -> "oversized-chunk"
+                msg.contains("Failed to save chunk") -> "save-chunk-failed"
+                msg.contains("Failed to load chunk") -> "load-chunk-failed"
+                else -> "chunk-io-stall"
+            }
+            DetectorMatch(
+                discriminator = kind,
+                detail = buildString {
+                    append(msg.trim().take(160))
+                    if (coords != null && !msg.contains(coords)) append(" at chunk ($coords)")
+                    if (blame != null) append(" (involving $blame)")
+                },
+                evidence = event.frames.take(4).map { it.raw },
             )
         },
     )

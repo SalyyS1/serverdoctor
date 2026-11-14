@@ -78,4 +78,26 @@ class FlagsAuditTest {
         val ids = FlagsAudit().analyse("empty", null).findings.map { it.ruleId }
         assertEquals(listOf("F012"), ids)
     }
+
+    @Test
+    fun `flags legacy or under-provisioned zgc while accepting generational zgc with headroom`() {
+        val badZgc = JvmCommandLine.parse("java -Xms6G -Xmx6G -XX:+UseZGC -XX:-ZGenerational -jar folia.jar")
+        val badIds = FlagsAudit().analyse("zgc-bad", badZgc).findings.map { it.ruleId }
+        assertTrue("F013" in badIds, "expected F013 on non-generational tight ZGC: $badIds")
+
+        val goodZgc = JvmCommandLine.parse("java -Xms12G -Xmx12G -XX:+UseZGC -XX:+ZGenerational -XX:+AlwaysPreTouch -jar folia.jar")
+        val goodIds = FlagsAudit(24L * 1024 * 1024 * 1024).analyse("zgc-good", goodZgc).findings.map { it.ruleId }
+        assertTrue(goodIds.isEmpty(), "clean Generational ZGC should report nothing, got $goodIds")
+    }
+
+    @Test
+    fun `flags extreme g1 pause targets and inverted young generation bounds`() {
+        val inverted = JvmCommandLine.parse(
+            "java -Xms8G -Xmx8G -XX:+UseG1GC -XX:MaxGCPauseMillis=10 " +
+                "-XX:G1NewSizePercent=50 -XX:G1MaxNewSizePercent=30 -jar paper.jar",
+        )
+        val findings = FlagsAudit().analyse("g1-bad", inverted).findings.filter { it.ruleId == "F014" }
+        assertEquals(2, findings.size, "expected pause target warning and blocker young-gen bounds: $findings")
+        assertTrue(findings.any { it.severity == com.salyvn.serverdoctor.core.Severity.BLOCKER })
+    }
 }

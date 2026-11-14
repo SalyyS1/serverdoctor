@@ -13,7 +13,7 @@ import java.nio.file.StandardOpenOption
  * A region file starts with two 4 KiB sectors: 1024 four-byte locations, then 1024 timestamps. Each
  * location packs the chunk's sector offset in the top three bytes and its length in sectors in the
  * bottom one, so the header alone says where every chunk in those 512 by 512 blocks is meant to be.
- * Only that header is read here — never a chunk — which is enough to tell a file that lost its tail
+ * Only that header is read here - never a chunk - which is enough to tell a file that lost its tail
  * from a file that is merely large.
  *
  * The one case that must not be reported is Spigot's oversized chunk: a length of 255 sectors means the

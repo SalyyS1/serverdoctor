@@ -136,7 +136,7 @@ object PluginRules {
         title = "The project it came from is archived or deprecated",
         rationale = "The publisher has marked it as no longer maintained. It will not be fixed for the " +
             "next Minecraft version, which makes it the thing that blocks the next upgrade.",
-        provenance = "$MODRINTH — the project's own status field",
+        provenance = "$MODRINTH - the project's own status field",
         fix = "Plan a replacement before the next version bump rather than during it.",
     )
 
@@ -148,7 +148,7 @@ object PluginRules {
         rationale = "Reported as a date, not as a verdict. Plenty of finished plugins need no changes " +
             "for years; the point is to know which of your dependencies is in that category before " +
             "you need a fix from one.",
-        provenance = "$MODRINTH — the project's own updated timestamp",
+        provenance = "$MODRINTH - the project's own updated timestamp",
         fix = null,
     )
 
@@ -159,7 +159,7 @@ object PluginRules {
         title = "A project of this name publishes builds, and this file is not one of them",
         rationale = "The plugin's own name resolves to a project, and none of that project's recent " +
             "files has this file's digest. The ordinary explanations are an older release, a fork, or a " +
-            "jar somebody compiled themselves — which is exactly why this is reported as provenance " +
+            "jar somebody compiled themselves - which is exactly why this is reported as provenance " +
             "rather than as damage.",
         provenance = HANGAR,
         fix = "If this was meant to be an official build, download it again from the project page and " +

@@ -7,8 +7,8 @@ import kotlinx.serialization.json.Json
 
 /**
  * Machine-readable output. The shape is deliberately flat and boring: a wrapper with a schema
- * version, then one entry per audit. Anything that consumes this — a CI step, a Discord bot, an
- * agent — should be able to read it without a client library.
+ * version, then one entry per audit. Anything that consumes this - a CI step, a Discord bot, an
+ * agent - should be able to read it without a client library.
  */
 object JsonReporter {
 

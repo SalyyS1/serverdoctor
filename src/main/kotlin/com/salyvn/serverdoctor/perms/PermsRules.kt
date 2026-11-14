@@ -10,16 +10,16 @@ import com.salyvn.serverdoctor.core.Severity
  * The four JSON lists and `permissions.yml` are the whole access surface of a vanilla-derived server,
  * and they fail quietly: a hand-edited list keeps working for everyone already on it, and a broken
  * `permissions.yml` is skipped with one line at startup that nobody reads twice. Nothing here judges a
- * server for having operators or for being open — only for states that do not mean what they look like.
+ * server for having operators or for being open - only for states that do not mean what they look like.
  */
 object PermsRules {
 
     private const val OFFLINE_ID = "PaperMC/Paper paper-server/src/main/java/org/bukkit/craftbukkit/" +
-        "CraftServer.java:1941-1948 — an account's real id is only looked up when online mode is on; " +
+        "CraftServer.java:1941-1948 - an account's real id is only looked up when online mode is on; " +
         "otherwise the id is created from the name that was typed"
 
     private const val PERMISSIONS_FILE = "PaperMC/Paper paper-server/src/main/java/org/bukkit/" +
-        "craftbukkit/CraftServer.java:1114-1148 — the path comes from bukkit.yml settings.permissions-" +
+        "craftbukkit/CraftServer.java:1114-1148 - the path comes from bukkit.yml settings.permissions-" +
         "file, a file that is not there returns silently, and YAML that does not parse is logged once " +
         "and the whole file skipped"
 
@@ -65,7 +65,7 @@ object PermsRules {
         severity = Severity.WARNING,
         title = "An access list names one player twice",
         rationale = "The server does not write a name twice. Two entries for one player usually means an " +
-            "id changed under the name — a rename, or a switch between online and offline ids — and one " +
+            "id changed under the name - a rename, or a switch between online and offline ids - and one " +
             "of the two is now dead weight that looks live.",
         provenance = "Read from this file: two entries share a name or an address",
         fix = "Keep the entry whose id matches how players connect today and remove the other.",
@@ -91,7 +91,7 @@ object PermsRules {
             "defined in it is simply absent. Nothing else says so, and the plugins that rely on those " +
             "nodes fail one command at a time.",
         provenance = PERMISSIONS_FILE,
-        fix = "Fix the YAML — the error names the line — and reload. Until then no node in this file " +
+        fix = "Fix the YAML - the error names the line - and reload. Until then no node in this file " +
             "exists.",
     )
 

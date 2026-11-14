@@ -7,7 +7,7 @@ import com.salyvn.serverdoctor.diff.ServerDiff
 import com.salyvn.serverdoctor.diff.ServerSnapshot
 
 /**
- * `serverdoctor diff <server-a> <server-b>` — what is not the same about two servers.
+ * `serverdoctor diff <server-a> <server-b>` - what is not the same about two servers.
  *
  * Written for the case that has no other tool: one node of a network behaves unlike its siblings, or a
  * staging box works and production does not, and the difference is in a file nobody remembers editing.

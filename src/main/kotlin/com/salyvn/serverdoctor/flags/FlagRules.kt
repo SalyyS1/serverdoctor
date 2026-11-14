@@ -7,7 +7,7 @@ import com.salyvn.serverdoctor.core.Severity
 /**
  * Rules about the JVM command line.
  *
- * Two sources, kept apart on purpose. Facts about the server come from Paper's own code — a system
+ * Two sources, kept apart on purpose. Facts about the server come from Paper's own code - a system
  * property that turns the watchdog off does exactly what the field reading it says it does. Advice
  * about garbage collection comes from Paper's documented flag set, and is reported as advice: a
  * missing tuning flag is INFO, never a defect, because the person running the server may have
@@ -158,6 +158,34 @@ object FlagRules {
         fix = "Pass the command line directly with --command, or point at the script that runs java.",
     )
 
+    val ZGC_HEADROOM_OR_LEGACY = Rule(
+        id = "F013",
+        area = RuleArea.FLAGS,
+        severity = Severity.WARNING,
+        title = "ZGC is enabled without generational mode or sufficient heap headroom",
+        rationale = "ZGC collects concurrently while server tick threads continue allocating. Disabling " +
+            "generational ZGC (-XX:-ZGenerational), setting SoftMaxHeapSize above -Xmx, or running ZGC " +
+            "on a tight heap below 8 GiB starves concurrent relocation under chunk generation and " +
+            "forces tick threads into Allocation Stall pauses.",
+        provenance = "JEP 439 (Generational ZGC in JDK 21) and JEP 474 (Generational ZGC default in JDK 23)",
+        fix = "Enable -XX:+ZGenerational on JDK 21-22, allocate at least 8 to 12 GiB with -Xms equal " +
+            "to -Xmx, and keep SoftMaxHeapSize at or below -Xmx.",
+    )
+
+    val G1_PAUSE_OR_BOUNDS_INVALID = Rule(
+        id = "F014",
+        area = RuleArea.FLAGS,
+        severity = Severity.WARNING,
+        title = "G1GC pause target or young-generation bounds are counterproductive",
+        rationale = "Setting MaxGCPauseMillis below 25 ms forces G1 into tiny Eden regions and constant " +
+            "evacuations, while values above 250 ms permit multi-tick freezes. Setting G1NewSizePercent " +
+            "above G1MaxNewSizePercent is rejected by HotSpot before the server even starts.",
+        provenance = "OpenJDK HotSpot G1Arguments::initialize and PaperMC/docs aikars-flags.md " +
+            "(MaxGCPauseMillis=200, G1NewSizePercent=30..40)",
+        fix = "Keep MaxGCPauseMillis between 50 and 200 ms and ensure G1NewSizePercent is less than or " +
+            "equal to G1MaxNewSizePercent.",
+    )
+
     val all: List<Rule> = listOf(
         HEAP_NOT_FIXED,
         NO_MAX_HEAP,
@@ -171,5 +199,7 @@ object FlagRules {
         HEAP_BELOW_RECOMMENDED,
         HEAP_OVER_HOST_MEMORY,
         NO_JAVA_COMMAND_FOUND,
+        ZGC_HEADROOM_OR_LEGACY,
+        G1_PAUSE_OR_BOUNDS_INVALID,
     )
 }

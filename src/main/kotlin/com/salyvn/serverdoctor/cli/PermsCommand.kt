@@ -8,7 +8,7 @@ import com.salyvn.serverdoctor.perms.PermsAudit
 import java.nio.file.Files
 
 /**
- * `serverdoctor perms <server-dir>` — who can get in, and who is an operator once they are.
+ * `serverdoctor perms <server-dir>` - who can get in, and who is an operator once they are.
  */
 class PermsCommand : ReportCommand("perms") {
 

@@ -11,7 +11,7 @@ import java.nio.charset.StandardCharsets
 import java.nio.file.Files
 
 /**
- * `serverdoctor rules` — the whole catalogue, with the source each rule's underlying fact came from.
+ * `serverdoctor rules` - the whole catalogue, with the source each rule's underlying fact came from.
  *
  * This exists so a claim can be argued with. A finding says "the watchdog fired"; this says which
  * file and line in Paper emits that message, so the reader can check rather than believe.

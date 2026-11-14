@@ -21,7 +21,7 @@ data class LogParseStats(
  * 1. Hosting panels wrap server output. Pterodactyl and friends inject ANSI colour and their own
  *    daemon lines, and Docker prefixes an ISO timestamp and a stream name. A parser that assumes
  *    the vanilla shape sees none of the content.
- * 2. There is more than one header shape in the wild — the modern `[time] [thread/LEVEL]:`, the
+ * 2. There is more than one header shape in the wild - the modern `[time] [thread/LEVEL]:`, the
  *    older `[time LEVEL]:`, and dated variants that hosts configure.
  * 3. An exception is one event across many lines, so anything that does not look like a header
  *    belongs to the event above it.
@@ -125,6 +125,15 @@ class LogParser {
                     val (plugin, message) = splitPluginPrefix(rest)
                     return Header(stamp, thread, level?.uppercase(), message, plugin, "dated")
                 }
+                JVM_UNIFIED.find(line)?.let { match ->
+                    val (stamp, rawLevel, rawTags, rest) = match.destructured
+                    val level = when (rawLevel.uppercase()) {
+                        "WARNING" -> "WARN"
+                        else -> rawLevel.uppercase()
+                    }
+                    val tags = rawTags.replace(" ", "")
+                    return Header(stamp, "jvm:$tags", level, rest, null, "jvm-unified")
+                }
                 return null
             }
 
@@ -145,11 +154,17 @@ class LogParser {
         /** `[22:31:04] [Server thread/INFO]: message` */
         val PAPER = Regex("""^\[(\d{1,2}:\d{2}:\d{2})]\s\[([^]]+)]:\s?(.*)$""")
 
-        /** `[22:31:04 INFO]: message` — Bukkit and CraftBukkit era, still emitted by some forks. */
+        /** `[22:31:04 INFO]: message` - Bukkit and CraftBukkit era, still emitted by some forks. */
         val LEGACY = Regex("""^\[(\d{1,2}:\d{2}:\d{2})\s(INFO|WARN|WARNING|ERROR|SEVERE|FATAL|DEBUG|TRACE)]:?\s?(.*)$""")
 
-        /** `[2026-08-24 22:31:04] [Server thread/INFO]: message` — panels and custom log4j configs. */
+        /** `[2026-08-24 22:31:04] [Server thread/INFO]: message` - panels and custom log4j configs. */
         val DATED = Regex("""^\[?(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?Z?)]?\s\[([^]]+)]:\s?(.*)$""")
+
+        /** `[142.810s][info][gc] GC(14) Pause Young ...` - OpenJDK JEP 158 Unified JVM Logging. */
+        val JVM_UNIFIED = Regex(
+            """^\[([^\]]+)]\[(trace|debug|info|warning|error)]\[([a-zA-Z0-9_,\s]+)]\s*(.*)$""",
+            RegexOption.IGNORE_CASE,
+        )
 
         /** Only the characters Bukkit allows in a plugin name, so prose in brackets is not matched. */
         val PLUGIN_PREFIX = Regex("""^\[([A-Za-z0-9_.\- ]{1,48})]\s(.*)$""")

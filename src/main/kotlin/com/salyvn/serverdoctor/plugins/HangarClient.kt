@@ -51,7 +51,7 @@ sealed interface HangarLookup {
  * Hangar has no endpoint that takes a digest, so the lookup runs the other way round: the plugin's own
  * declared name is a slug there far more often than not, and each published version carries the SHA-256
  * of its file. That inversion is why the result type distinguishes "no project of that name" from "the
- * project exists and this file is not one of its builds" — the second is worth reporting and the first
+ * project exists and this file is not one of its builds" - the second is worth reporting and the first
  * is worth nothing, and a client that returned null for both would lose that difference.
  *
  * Endpoint shapes were verified against the live API on 2026-08-24: slug lookup is case-insensitive,

@@ -27,7 +27,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 
 /**
- * `serverdoctor scan <server-dir>` — every audit that applies to one directory, in one pass.
+ * `serverdoctor scan <server-dir>` - every audit that applies to one directory, in one pass.
  *
  * This is the command for the situation the tool was written for: something is wrong, the operator has
  * the server folder, and nobody yet knows whether the cause is in the log, the config, the flags, the

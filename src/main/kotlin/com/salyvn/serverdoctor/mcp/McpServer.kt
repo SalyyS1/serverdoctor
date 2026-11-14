@@ -19,8 +19,8 @@ interface McpTool {
 }
 
 /**
- * The outcome of a tool call. [isError] carries a failed *execution* — a missing log, an unreadable
- * config — back to the model as content it can act on, which is what the specification asks for.
+ * The outcome of a tool call. [isError] carries a failed *execution* - a missing log, an unreadable
+ * config - back to the model as content it can act on, which is what the specification asks for.
  * Protocol-level problems (unknown tool, bad request shape) become JSON-RPC errors and never get
  * here.
  */

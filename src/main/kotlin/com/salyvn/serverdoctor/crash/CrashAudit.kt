@@ -133,7 +133,7 @@ class CrashAudit(private val plugins: PluginIndex = PluginIndex.EMPTY) {
                     location = group.last().name,
                     detail = "${group.size} reports say: $description.",
                     evidence = group.map { crash ->
-                        listOfNotNull(crash.name, crash.time).joinToString(" — ")
+                        listOfNotNull(crash.name, crash.time).joinToString(" - ")
                     },
                 )
             }

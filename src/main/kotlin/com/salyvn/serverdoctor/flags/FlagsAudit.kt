@@ -3,12 +3,13 @@ package com.salyvn.serverdoctor.flags
 import com.salyvn.serverdoctor.core.BuildInfo
 import com.salyvn.serverdoctor.core.FindingSink
 import com.salyvn.serverdoctor.core.ScanReport
+import com.salyvn.serverdoctor.core.Severity
 
 /**
  * Audits a JVM command line.
  *
  * The distinction that keeps this useful is between a fact and a preference. `-Ddisable.watchdog`
- * disables the watchdog — that is a fact, read from the field in Paper that consumes it, and it is
+ * disables the watchdog - that is a fact, read from the field in Paper that consumes it, and it is
  * reported as critical. Whether a heap should carry `G1MixedGCCountTarget=4` is a preference, so the
  * missing-flag check produces one informational finding listing what differs, and stops there.
  */
@@ -136,6 +137,49 @@ class FlagsAudit(private val hostMemoryBytes: Long? = null) {
                 evidence = g1Tuning.take(6),
             )
         }
+
+        if (command.toggle("UseZGC") == true) {
+            val reasons = mutableListOf<String>()
+            if (command.toggle("ZGenerational") == false) {
+                reasons += "-XX:-ZGenerational forces legacy single-generation ZGC"
+            }
+            val max = command.maxHeapBytes
+            if (max != null && max < ZGC_RECOMMENDED_FLOOR) {
+                reasons += "-Xmx ${JvmCommandLine.humanSize(max)} leaves tight concurrent relocation headroom (< 8 GiB)"
+            }
+            val softMax = command.flag("SoftMaxHeapSize")?.let { JvmCommandLine.parseSize(it) }
+            if (softMax != null && max != null && softMax > max) {
+                reasons += "SoftMaxHeapSize (${JvmCommandLine.humanSize(softMax)}) exceeds -Xmx (${JvmCommandLine.humanSize(max)})"
+            }
+            if (reasons.isNotEmpty()) {
+                sink.add(
+                    rule = FlagRules.ZGC_HEADROOM_OR_LEGACY,
+                    location = source,
+                    detail = reasons.joinToString("; ") + ".",
+                )
+            }
+        }
+
+        if (!otherCollector) {
+            val pauseTarget = command.flag("MaxGCPauseMillis")?.toLongOrNull()
+            if (pauseTarget != null && (pauseTarget < MIN_SANE_G1_PAUSE_MS || pauseTarget > MAX_SANE_G1_PAUSE_MS)) {
+                sink.add(
+                    rule = FlagRules.G1_PAUSE_OR_BOUNDS_INVALID,
+                    location = source,
+                    detail = "MaxGCPauseMillis=$pauseTarget ms is outside the 25..250 ms operating window.",
+                )
+            }
+            val g1New = command.flag("G1NewSizePercent")?.toIntOrNull()
+            val g1MaxNew = command.flag("G1MaxNewSizePercent")?.toIntOrNull()
+            if (g1New != null && g1MaxNew != null && g1New > g1MaxNew) {
+                sink.add(
+                    rule = FlagRules.G1_PAUSE_OR_BOUNDS_INVALID,
+                    location = source,
+                    detail = "G1NewSizePercent=$g1New exceeds G1MaxNewSizePercent=$g1MaxNew, which aborts HotSpot startup.",
+                    severityOverride = Severity.BLOCKER,
+                )
+            }
+        }
     }
 
     private fun checkSystemProperties(command: JvmCommandLine, sink: FindingSink, source: String) {
@@ -214,6 +258,9 @@ class FlagsAudit(private val hostMemoryBytes: Long? = null) {
 
         const val COMPRESSED_OOPS_LIMIT = 32L * 1024 * 1024 * 1024
         const val RECOMMENDED_FLOOR = 6L * 1024 * 1024 * 1024
+        const val ZGC_RECOMMENDED_FLOOR = 8L * 1024 * 1024 * 1024
         const val HOST_HEADROOM = 1000L * 1024 * 1024
+        const val MIN_SANE_G1_PAUSE_MS = 25L
+        const val MAX_SANE_G1_PAUSE_MS = 250L
     }
 }

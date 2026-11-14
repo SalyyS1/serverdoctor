@@ -61,8 +61,8 @@ read on 2026-08-24 from the default branch of each repository.
     Read from PaperMC/Paper: WorldFolderMigration.java, for the Data compound that
     carries the level data and for the two historic layouts the server migrates
     between (the CraftBukkit sibling folders and the vanilla DIM-1 / DIM1). The
-    structural facts — a folder with region data and no level.dat, a zero-byte
-    .mca, a datapack folder without pack.mcmeta — are read from the directory
+    structural facts - a folder with region data and no level.dat, a zero-byte
+    .mca, a datapack folder without pack.mcmeta - are read from the directory
     itself and the rules say so rather than citing behaviour that could not be
     sourced. The NBT reader is written from the format itself and produces only
     maps, lists and primitives.
@@ -99,7 +99,7 @@ read on 2026-08-24 from the default branch of each repository.
     Hangar's API v1, verified by request on 2026-08-24 and asked only when a digest
     lookup has already missed: slug lookup is case-insensitive, an unknown slug
     answers 404, the versions listing is newest first and clamps its page size to
-    25, and each version carries downloads.<platform>.fileInfo.sha256Hash — the
+    25, and each version carries downloads.<platform>.fileInfo.sha256Hash - the
     digest of the file Hangar itself serves. Verified end to end against a real
     published build, whose downloaded bytes hashed to the value the API reports.
     Hangar has no endpoint that takes a digest, so that lookup runs by name, which
@@ -116,7 +116,7 @@ read on 2026-08-24 from the default branch of each repository.
     patches/sources/net/minecraft/world/level/chunk/storage/RegionFile.java.patch.
     A length of 255 sectors is Spigot's marker for a chunk stored oversized, whose
     real length lives in the chunk's own prefix, so it is deliberately not
-    bounds-checked — treating it as a size would report healthy files as damaged.
+    bounds-checked - treating it as a size would report healthy files as damaged.
     Vanilla's own padding behaviour is not in Paper's repository and no rule
     depends on it.
 

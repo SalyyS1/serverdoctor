@@ -10,7 +10,7 @@ import com.salyvn.serverdoctor.core.Severity
  * These rules do not say that either side is wrong, because a diff cannot know that: the reason to run
  * one is that a staging box works and a production box does not, or that one node in a network behaves
  * unlike its siblings. So the severities are low by design and the value is in the list, not the
- * verdict — with one exception. Two files that claim the same plugin and the same version and are not
+ * verdict - with one exception. Two files that claim the same plugin and the same version and are not
  * the same bytes is not a difference of opinion, and that is reported as one.
  */
 object DiffRules {
@@ -78,7 +78,7 @@ object DiffRules {
             "One of them was rebuilt, patched, repacked or replaced, and the version number no longer " +
             "identifies what is running.",
         provenance = "SHA-1 of both files, computed here",
-        fix = "Establish which file came from the author — by hash, against the download — and replace " +
+        fix = "Establish which file came from the author - by hash, against the download - and replace " +
             "the other.",
     )
 

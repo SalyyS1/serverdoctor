@@ -8,7 +8,7 @@ import kotlinx.serialization.Serializable
  *
  * - [BLOCKER]  the server will not start, or is not starting right now.
  * - [CRITICAL] it runs, and something is actively wrong: data at risk, an open door, a crash loop.
- * - [WARNING]  it works today and depends on luck — one more plugin, one more player, one version.
+ * - [WARNING]  it works today and depends on luck - one more plugin, one more player, one version.
  * - [INFO]     worth a human's attention. No defect claimed.
  */
 @Serializable
@@ -41,7 +41,7 @@ enum class RuleArea(val label: String) {
 
 /**
  * A rule states one checkable fact about a server. [provenance] records where that fact was
- * established from — a source file in Paper, a JDK release note, an API response — so every claim
+ * established from - a source file in Paper, a JDK release note, an API response - so every claim
  * printed by this tool can be checked by the person it is being made to, instead of taken on trust.
  */
 data class Rule(
@@ -64,7 +64,7 @@ data class Finding(
     val location: String,
     /** What was actually observed, in the reader's terms. */
     val detail: String,
-    /** Raw observations backing [detail] — log lines, values, counts, class names. */
+    /** Raw observations backing [detail] - log lines, values, counts, class names. */
     val evidence: List<String> = emptyList(),
     val fix: String? = null,
     val provenance: String? = null,

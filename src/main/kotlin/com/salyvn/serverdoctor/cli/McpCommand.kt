@@ -7,7 +7,7 @@ import com.salyvn.serverdoctor.mcp.McpServer
 import com.salyvn.serverdoctor.mcp.ToolCatalog
 
 /**
- * `serverdoctor mcp` — serve the audits to an AI coding agent over stdio.
+ * `serverdoctor mcp` - serve the audits to an AI coding agent over stdio.
  *
  * stdout carries protocol messages and nothing else, which is why there is no banner and no progress
  * output here: one stray line of human-readable text breaks the transport. Diagnostics go to stderr.

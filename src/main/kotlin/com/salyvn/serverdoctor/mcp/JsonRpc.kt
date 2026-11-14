@@ -11,7 +11,7 @@ import kotlinx.serialization.json.put
 /**
  * The slice of JSON-RPC 2.0 that MCP over stdio needs.
  *
- * Framing is newline-delimited JSON — one object per line, no `Content-Length` headers — and nothing
+ * Framing is newline-delimited JSON - one object per line, no `Content-Length` headers - and nothing
  * except protocol messages may be written to stdout. Both rules come from the MCP stdio transport
  * specification, so everything this tool would otherwise print goes to stderr while it is serving.
  */

@@ -8,7 +8,7 @@ import com.salyvn.serverdoctor.world.WorldAudit
 import com.salyvn.serverdoctor.world.WorldFolder
 
 /**
- * `serverdoctor world <server-dir|world-dir>` — check the worlds on disk.
+ * `serverdoctor world <server-dir|world-dir>` - check the worlds on disk.
  */
 class WorldCommand : ReportCommand("world") {
 
