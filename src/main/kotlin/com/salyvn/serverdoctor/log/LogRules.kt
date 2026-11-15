@@ -365,6 +365,41 @@ object LogRules {
             "chunk-system.worker-threads at -1.",
     )
 
+    val SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY = Rule(
+        id = "L027",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Spark profiler call-tree or flamegraph shows a dominant tick-thread hotspot",
+        rationale = "When Spark sampler call-trees, collapsed flamegraph stacks, or JSON thread profiles " +
+            "show a server or Folia region tick thread spending 20 percent or more of sampled execution " +
+            "time inside one non-idle subsystem, categorizing the full call branch distinguishes " +
+            "synchronous JDBC/HTTP socket waits, filesystem I/O, lock or CompletableFuture parking, " +
+            "entity pathfinding and villager POI scans, hopper container sweeps, and synchronous chunk " +
+            "generation while attributing the hotspot to the calling plugin frame rather than the " +
+            "underlying driver or JDK class.",
+        provenance = "lucko/spark CallTree / StackTraceNode sampler format and collapsed flamegraph stack profiles",
+        fix = "Move JDBC, HTTP, Redis, and disk I/O onto AsyncScheduler or Folia async pools, eliminate " +
+            "blocking CompletableFuture.join and contended locks from tick threads, or apply targeted " +
+            "Paper/Folia entity and hopper tuning for the reported hotspot category.",
+    )
+
+    val FOLIA_THREAD_STALL_TRIAGE = Rule(
+        id = "L028",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Folia region thread stall root-cause classified: cross-region wait, lock contention, or blocking I/O",
+        rationale = "Folia's RegionizedServer executes independent TickRegionThreads in parallel and merges " +
+            "adjacent regions dynamically when chunks load near each other. When a region thread blocks on " +
+            "CompletableFuture.join/get for work scheduled on another region, waits on a contended monitor " +
+            "or ReentrantLock held by a peer region thread, stalls inside ThreadedRegionizer split/merge " +
+            "barriers, or performs synchronous JDBC/socket/file I/O, both the stalled region and any " +
+            "neighbouring region attempting to merge with it freeze until FoliaWatchdogThread halts the server.",
+        provenance = "PaperMC/Folia FoliaWatchdogThread.java, ThreadedRegionizer.java, and RegionizedTaskQueue.java",
+        fix = "Never call CompletableFuture.join or Future.get on a TickRegionThread; chain callbacks onto " +
+            "EntityScheduler or RegionScheduler via thenAccept, replace cross-region shared locks with " +
+            "lock-free message passing or ConcurrentHashMap, and move all JDBC, HTTP, and disk I/O to AsyncScheduler.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -392,5 +427,7 @@ object LogRules {
         NETTY_PACKET_CONTENTION,
         FOLIA_REGION_ENTITY_DENSITY,
         ASYNC_CHUNK_GENERATION_STALL,
+        SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY,
+        FOLIA_THREAD_STALL_TRIAGE,
     )
 }

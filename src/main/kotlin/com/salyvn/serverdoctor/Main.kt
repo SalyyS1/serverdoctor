@@ -15,6 +15,7 @@ import com.salyvn.serverdoctor.cli.PermsCommand
 import com.salyvn.serverdoctor.cli.PluginsCommand
 import com.salyvn.serverdoctor.cli.RulesCommand
 import com.salyvn.serverdoctor.cli.ScanCommand
+import com.salyvn.serverdoctor.cli.SparkCommand
 import com.salyvn.serverdoctor.cli.WorldCommand
 import com.salyvn.serverdoctor.core.BuildInfo
 
@@ -39,6 +40,7 @@ fun main(args: Array<String>) = ServerDoctorCommand()
     .subcommands(
         ScanCommand(),
         LogCommand(),
+        SparkCommand(),
         ConfigCommand(),
         FlagsCommand(),
         PluginsCommand(),

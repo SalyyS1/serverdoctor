@@ -45,6 +45,13 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
         var watchdogTargetKey: Key? = null
         var watchdogHitLine = 0
 
+        var foliaWatchdogThread: String? = null
+        var foliaStallStartLine = 0
+        val foliaStallLines = mutableListOf<String>()
+
+        val sparkProfileLines = mutableListOf<Pair<Int, String>>()
+        var inJsonProfileBlock = false
+
         fun record(rule: Rule, discriminator: String, line: Int, detail: String, evidence: List<String>) {
             val key = Key(rule.id, discriminator)
             val existing = hits[key]
@@ -55,6 +62,21 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
             }
         }
 
+        fun flushFoliaStall() {
+            if (foliaWatchdogThread == null || foliaStallLines.isEmpty()) return
+            FoliaStallTriager.triageDump(
+                startLine = foliaStallStartLine,
+                rawLines = foliaStallLines,
+                plugins = plugins,
+                isWatchdogDump = true,
+            )?.let { hit ->
+                record(LogRules.FOLIA_THREAD_STALL_TRIAGE, hit.discriminator, hit.line, hit.detail, hit.evidence)
+            }
+            foliaWatchdogThread = null
+            foliaStallStartLine = 0
+            foliaStallLines.clear()
+        }
+
         val stats = LogParser().parse(source) { event ->
             event.timestamp?.let {
                 if (firstTimestamp == null) firstTimestamp = it
@@ -62,7 +84,34 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
             }
             captureFacts(event, facts)
 
+            if (sparkProfileLines.size < SparkFlamegraphAnalyzer.MAX_SPARK_LINES) {
+                val rawHeader = if (event.loggerPlugin != null) "[${event.loggerPlugin}] ${event.message}" else event.message
+                if (rawHeader.trimStart().startsWith("{")) inJsonProfileBlock = true
+                if (inJsonProfileBlock || SparkFlamegraphAnalyzer.isCandidateProfileLine(rawHeader)) {
+                    sparkProfileLines += event.startLine to rawHeader
+                }
+                event.continuation.forEachIndexed { offset, contLine ->
+                    if (sparkProfileLines.size < SparkFlamegraphAnalyzer.MAX_SPARK_LINES) {
+                        if (contLine.trimStart().startsWith("{")) inJsonProfileBlock = true
+                        if (inJsonProfileBlock || SparkFlamegraphAnalyzer.isCandidateProfileLine(contLine)) {
+                            sparkProfileLines += (event.startLine + offset + 1) to contLine
+                        }
+                    }
+                }
+            }
+
             var explained = false
+
+            if (foliaWatchdogThread != null) {
+                val sameThread = event.thread == foliaWatchdogThread
+                val stale = event.startLine - foliaStallStartLine > WATCHDOG_DUMP_WINDOW
+                if (!sameThread || stale) {
+                    flushFoliaStall()
+                } else if (foliaStallLines.size < WATCHDOG_DUMP_WINDOW) {
+                    foliaStallLines += event.message
+                    foliaStallLines += event.continuation
+                }
+            }
 
             // The watchdog prints its banner and then the thread dump as separate log lines, all from
             // its own thread. Scoping collection to that thread is what stops the next unrelated
@@ -95,6 +144,12 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
                     watchdogTargetKey = Key(detector.rule.id, match.discriminator)
                     watchdogHitLine = event.startLine
                 }
+                if (detector.rule.id == LogRules.FOLIA_REGION_STALL.id && foliaWatchdogThread == null) {
+                    foliaWatchdogThread = event.thread ?: "Folia Watchdog"
+                    foliaStallStartLine = event.startLine
+                    foliaStallLines += event.message
+                    foliaStallLines += event.continuation
+                }
             }
 
             // Anything severe that no rule explains is still reported, grouped by what threw and
@@ -120,6 +175,17 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
                     existing.count++
                 }
             }
+        }
+
+        flushFoliaStall()
+        for (sparkHit in SparkFlamegraphAnalyzer.detectHotspotsFromLines(sparkProfileLines, plugins)) {
+            record(
+                rule = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY,
+                discriminator = sparkHit.discriminator,
+                line = sparkHit.line,
+                detail = sparkHit.detail,
+                evidence = sparkHit.evidence,
+            )
         }
 
         facts["lines read"] = if (stats.truncated) "${stats.lines} (stopped at the cap)" else stats.lines.toString()

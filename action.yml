@@ -11,7 +11,7 @@ inputs:
     description: "Server directory, log file, crash report, or config path to audit."
     required: true
   mode:
-    description: "ServerDoctor subcommand to run: scan, log, config, flags, plugins, world, crash, or perms."
+    description: "ServerDoctor subcommand to run: scan, log, spark, config, flags, plugins, world, crash, or perms."
     required: false
     default: "scan"
   fail-on:
@@ -27,9 +27,9 @@ inputs:
     required: false
     default: ""
   version:
-    description: "ServerDoctor release version to download (for example: 0.5.0)."
+    description: "ServerDoctor release version to download (for example: 0.6.0)."
     required: false
-    default: "0.5.0"
+    default: "0.6.0"
 
 outputs:
   exit-code:
@@ -170,7 +170,7 @@ runs:
         host_memory = os.environ.get("INPUT_HOST_MEMORY", "").strip()
         sarif_file = os.environ.get("INPUT_SARIF_FILE", "").strip()
 
-        valid_modes = {"scan", "log", "config", "flags", "plugins", "world", "crash", "perms"}
+        valid_modes = {"scan", "log", "spark", "config", "flags", "plugins", "world", "crash", "perms"}
         if mode not in valid_modes:
             print(f"::error::Invalid mode '{mode}'. Expected one of {sorted(valid_modes)}.", file=sys.stderr)
             sys.exit(2)

@@ -335,6 +335,72 @@ object ConfigRules {
             "radii at or below simulation-distance * 16 blocks.",
     )
 
+    val PAPER_26_PACKET_LIMITER_HAZARD = Rule(
+        id = "C026",
+        area = RuleArea.CONFIG,
+        severity = Severity.CRITICAL,
+        title = "Paper 26.3 packet-limiter rate ceiling or window interval is disabled",
+        rationale = "Paper 26.3 configures inbound packet rate limits under packet-limiter in " +
+            "paper-global.yml (defaulting all-packets.max-packet-rate to 500.0 over a 7.0 second " +
+            "interval). Setting max-packet-rate to -1, 0, or extreme ceilings (>= 50000), or setting " +
+            "interval <= 0, disables Netty packet-flood mitigation and leaves item-component, " +
+            "recipe-book, and container click decoders exposed to unthrottled packet storms.",
+        provenance = "$GLOBAL (PacketLimiter: allPackets maxPacketRate=500.0, interval=7.0)",
+        fix = "Restore packet-limiter.all-packets.max-packet-rate to 500.0 (or 300.0..1500.0) with a " +
+            "positive interval such as 7.0 seconds, and keep per-packet overrides positive.",
+    )
+
+    val PAPER_26_CHUNK_LOADING_THROTTLE = Rule(
+        id = "C027",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 per-player chunk load/send rate or concurrent worldgen cap is misconfigured",
+        rationale = "Paper 26.3 separates Moonrise chunk streaming limits into chunk-loading-basic and " +
+            "chunk-loading-advanced in paper-global.yml. Setting player-max-chunk-load-rate or " +
+            "player-max-chunk-send-rate to 0 halts chunk delivery to players, while setting " +
+            "player-max-chunk-load-rate below 0 (unlimited) or above 1000, or setting " +
+            "player-max-concurrent-chunk-generates below -1 or above 64, lets fast flight and teleports " +
+            "saturate Moonrise worker queues and outbound Netty buffers.",
+        provenance = "$GLOBAL (ChunkLoadingBasic: playerMaxChunkLoadRate=100.0, ChunkLoadingAdvanced: playerMaxConcurrentChunkGenerates=0)",
+        fix = "Set chunk-loading-basic.player-max-chunk-load-rate between 50.0 and 250.0 (default 100.0), " +
+            "keep player-max-chunk-send-rate at -1.0 or >= 25.0 (never 0), and set " +
+            "player-max-concurrent-chunk-generates to 0 (auto) or 2..16.",
+    )
+
+    val PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE = Rule(
+        id = "C028",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 chunk/player autosave stalls persistence or pause-when-empty halts network services",
+        rationale = "Disabling world chunk persistence (chunks.auto-save-interval == 0 or < -1) or " +
+            "starving player data flushes (player-auto-save.max-per-tick == 0) risks severe inventory " +
+            "and terrain rollbacks on crash, whereas hyper-frequent autosave intervals (1..200 ticks) " +
+            "thrash Moonrise region I/O. Additionally, leaving server.properties pause-when-empty-seconds > 0 " +
+            "on a Velocity/Bungee backend or RCON-managed server freezes the main tick loop when the last " +
+            "player disconnects, stalling RCON commands, proxy health probes, and scheduled tasks.",
+        provenance = "$GLOBAL (PlayerAutoSave), $WORLD (Chunks.autoSaveInterval), and server.properties pause-when-empty-seconds",
+        fix = "Keep chunks.auto-save-interval at -1 or >= 1200 ticks, leave player-auto-save.rate and " +
+            "max-per-tick at -1, and set pause-when-empty-seconds=-1 (or 0) on proxy-connected or " +
+            "RCON-automated servers.",
+    )
+
+    val PAPER_26_DESPAWN_AND_HOPPER_CONFIG = Rule(
+        id = "C029",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 entity despawn ring inversion/overflow or unthrottled hopper move events",
+        rationale = "In paper-world-defaults.yml and paper-world.yml, each mob category defines soft and " +
+            "hard despawn radii (under entities.spawning.despawn-ranges.<category> or its horizontal " +
+            "sub-map in Paper 26.3). Configuring soft >= hard inverts random despawning, while setting " +
+            "hard wider than (max(view-distance, simulation-distance) + 2) * 16 retains mobs in " +
+            "non-ticking border chunks that exhaust per-player spawn caps. Similarly, setting both " +
+            "hopper.cooldown-when-full: false and hopper.disable-move-event: false forces " +
+            "InventoryMoveItemEvent allocation and full slot scans every tick on backed-up hoppers.",
+        provenance = "$WORLD (Entities.Spawning.DespawnRanges and Hopper) and server.properties view-distance / simulation-distance",
+        fix = "Keep despawn-ranges soft strictly below hard, align hard despawn radii within " +
+            "(simulation-distance + 1) * 16 blocks, and keep hopper.cooldown-when-full=true.",
+    )
+
     val all: List<Rule> = listOf(
         OFFLINE_MODE_NO_PROXY,
         VELOCITY_SECRET_EMPTY,
@@ -361,5 +427,9 @@ object ConfigRules {
         FOLIA_REGION_THREADS_TUNING,
         PAPER_TICK_RATES_TUNING,
         ENTITY_COLLISION_ACTIVATION_TUNING,
+        PAPER_26_PACKET_LIMITER_HAZARD,
+        PAPER_26_CHUNK_LOADING_THROTTLE,
+        PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE,
+        PAPER_26_DESPAWN_AND_HOPPER_CONFIG,
     )
 }

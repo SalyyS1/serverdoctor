@@ -699,5 +699,20 @@ object LogDetectors {
                 evidence = hit.evidence,
             )
         },
+
+        Signature(LogRules.FOLIA_THREAD_STALL_TRIAGE) { event, plugins ->
+            val thread = event.thread ?: return@Signature null
+            if (thread.contains("Watchdog", ignoreCase = true)) return@Signature null
+            if (isFoliaWatchdog(event)) return@Signature null
+            if (!FoliaStallTriager.isFoliaRegionOrWatchdogThread(thread)) return@Signature null
+            val lines = listOf(event.message) + event.continuation
+            val hit = FoliaStallTriager.triageDump(event.startLine, lines, plugins, isWatchdogDump = false)
+                ?: return@Signature null
+            DetectorMatch(
+                discriminator = hit.discriminator,
+                detail = hit.detail,
+                evidence = hit.evidence,
+            )
+        },
     )
 }

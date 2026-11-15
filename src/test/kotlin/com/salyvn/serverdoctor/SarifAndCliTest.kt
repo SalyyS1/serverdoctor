@@ -6,6 +6,7 @@ import com.github.ajalt.clikt.core.subcommands
 import com.salyvn.serverdoctor.cli.ConfigCommand
 import com.salyvn.serverdoctor.cli.LogCommand
 import com.salyvn.serverdoctor.cli.ScanCommand
+import com.salyvn.serverdoctor.cli.SparkCommand
 import com.salyvn.serverdoctor.config.ConfigAudit
 import com.salyvn.serverdoctor.config.ServerConfigSet
 import com.salyvn.serverdoctor.input.LogSource
@@ -95,6 +96,18 @@ class SarifAndCliTest {
 
             val neverCmd = ServerDoctorCommand().subcommands(LogCommand())
             neverCmd.parse(listOf("log", logPath, "--format", "sarif", "-o", sarifOut.toString(), "--fail-on", "never"))
+
+            val sparkFile = outDir.resolve("profile.folded")
+            sparkFile.toFile().writeText(
+                "Server thread;net.minecraft.server.MinecraftServer.tickServer;com.example.economy.SqlBank.withdraw;com.zaxxer.hikari.pool.HikariPool.getConnection 420\n" +
+                    "Server thread;net.minecraft.server.MinecraftServer.tickServer;net.minecraft.world.level.ServerLevel.tick 80\n",
+            )
+            val sparkSarif = outDir.resolve("spark.sarif")
+            val sparkCmd = ServerDoctorCommand().subcommands(SparkCommand())
+            sparkCmd.parse(listOf("spark", sparkFile.toString(), "--format", "sarif", "-o", sparkSarif.toString(), "--fail-on", "never"))
+            val sparkSarifText = sparkSarif.readText()
+            assertTrue(sparkSarifText.contains("\"L027\""), sparkSarifText)
+            assertTrue(sparkSarifText.contains("com.example.economy"), sparkSarifText)
         } finally {
             outDir.toFile().deleteRecursively()
         }

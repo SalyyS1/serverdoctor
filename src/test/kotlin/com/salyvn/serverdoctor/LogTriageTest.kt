@@ -278,6 +278,96 @@ class LogTriageTest {
         assertTrue(hits.any { it.detail.contains("4820 ms") && it.detail.contains("FEATURES") }, hits.toString())
     }
 
+    @Test
+    fun `categorizes spark text call-tree hotspots and ignores idle tick sleep`() {
+        val idleSpark = """
+            [16:00:01] [Server thread/INFO]: [spark] Server thread 100.00%
+            [16:00:01] [Server thread/INFO]: [spark]   |- net.minecraft.server.MinecraftServer.runServer() 99.80%
+            [16:00:01] [Server thread/INFO]: [spark]   |  |- net.minecraft.server.MinecraftServer.waitUntilNextTick() 86.40%
+            [16:00:01] [Server thread/INFO]: [spark]   |  |  \- java.util.concurrent.locks.LockSupport.parkNanos() 86.40%
+            [16:00:01] [Server thread/INFO]: [spark]   |  \- net.minecraft.server.MinecraftServer.tickServer() 12.10%
+        """.trimIndent()
+        assertTrue(triageText(idleSpark).findings.isEmpty(), "idle server waitUntilNextTick sleep must not trigger L027")
+
+        val hotSpark = """
+            [16:10:00] [Server thread/INFO]: [spark] Server thread 100.00% (5000ms)
+            [16:10:00] [Server thread/INFO]: [spark]   |- net.minecraft.server.MinecraftServer.tickServer() 94.20% (4710ms)
+            [16:10:00] [Server thread/INFO]: [spark]   |  |- com.example.economy.SqlLedger.getBalance(SqlLedger.java:88) 64.20% (3210ms)
+            [16:10:00] [Server thread/INFO]: [spark]   |  |  \- com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:181) 64.20% (3210ms)
+            [16:10:00] [Server thread/INFO]: [spark]   |  \- net.minecraft.world.entity.ai.sensing.SecondaryPoiSensor.doTick() 24.50% (1225ms)
+        """.trimIndent()
+        val triaged = triageText(hotSpark)
+        val l027 = triaged.findings.filter { it.ruleId == "L027" }
+        assertEquals(2, l027.size, "expected JDBC and entity AI hotspots in $l027")
+        assertTrue(
+            l027.any { it.detail.contains("JDBC/SQL") && it.detail.contains("com.example.economy") },
+            "expected JDBC hotspot attributed to com.example.economy rather than HikariPool: $l027",
+        )
+        assertTrue(
+            l027.any { it.detail.contains("villager POI") && it.detail.contains("24.5%") },
+            "expected villager POI hotspot in $l027",
+        )
+    }
+
+    @Test
+    fun `categorizes collapsed flamegraph stacks and spark json profiles`() {
+        val collapsed = """
+            Server thread;net.minecraft.server.MinecraftServer.tickServer;com.example.guilds.ClaimStore.saveSync;java.io.FileOutputStream.writeBytes 360
+            Server thread;net.minecraft.server.MinecraftServer.tickServer;net.minecraft.world.level.ServerLevel.tick 140
+        """.trimIndent()
+        val collapsedReport = triageText(collapsed)
+        val diskHit = collapsedReport.findings.single { it.ruleId == "L027" }
+        assertTrue(diskHit.detail.contains("filesystem") && diskHit.detail.contains("72.0%") && diskHit.detail.contains("com.example.guilds"), diskHit.detail)
+
+        val jsonProfile = """
+            {
+              "threads": [
+                {
+                  "name": "Region Scheduler Thread #2",
+                  "time": 1000.0,
+                  "children": [
+                    {
+                      "className": "net.minecraft.world.level.block.entity.HopperBlockEntity",
+                      "methodName": "pushItems",
+                      "time": 340.0,
+                      "children": []
+                    }
+                  ]
+                }
+              ]
+            }
+        """.trimIndent()
+        val jsonReport = triageText(jsonProfile)
+        val hopperHit = jsonReport.findings.single { it.ruleId == "L027" }
+        assertTrue(hopperHit.detail.contains("Hopper") && hopperHit.detail.contains("34.0%"), hopperHit.detail)
+    }
+
+    @Test
+    fun `triages folia thread stalls into cross-region future deadlocks and lock contention`() {
+        val futureDeadlockLog = """
+            [17:01:10] [Folia Region Watchdog/ERROR]: --- DO NOT REPORT THIS TO FOLIA - THIS IS NOT A BUG OR A CRASH ---
+            [17:01:10] [Folia Region Watchdog/ERROR]: Tick region (-24, 18) has not responded for 20.4 seconds!
+            [17:01:10] [Folia Region Watchdog/ERROR]: 	at java.base/java.util.concurrent.CompletableFuture.waitingGet(CompletableFuture.java:1895)
+            [17:01:10] [Folia Region Watchdog/ERROR]: 	at java.base/java.util.concurrent.CompletableFuture.join(CompletableFuture.java:2114)
+            [17:01:10] [Folia Region Watchdog/ERROR]: 	at com.example.skyblock.IslandBridge.fetchChunkState(IslandBridge.java:104)
+            [17:02:00] [Region Scheduler Thread #1/WARN]: Region thread stalled waiting on shared lock
+            java.lang.Thread.State: BLOCKED (on object monitor)
+            	at com.example.clans.ClanRegistry.lookup(ClanRegistry.java:58)
+            	- waiting to lock <0x0000000712ab00> (a java.util.HashMap) owned by "Region Scheduler Thread #4"
+        """.trimIndent()
+        val triaged = triageText(futureDeadlockLog)
+        val l028 = triaged.findings.filter { it.ruleId == "L028" }
+        assertEquals(2, l028.size, "expected future deadlock and lock contention L028 findings: $l028")
+        assertTrue(
+            l028.any { it.detail.contains("CompletableFuture") && it.detail.contains("(-24, 18)") && it.detail.contains("com.example.skyblock") },
+            l028.toString(),
+        )
+        assertTrue(
+            l028.any { it.detail.contains("Region Scheduler Thread #4") && it.detail.contains("com.example.clans") },
+            l028.toString(),
+        )
+    }
+
     private fun triageText(text: String): com.salyvn.serverdoctor.core.ScanReport {
         val file = kotlin.io.path.createTempFile(suffix = ".log")
         file.toFile().writeText(text + "\n")

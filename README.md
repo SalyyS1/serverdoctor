@@ -19,6 +19,7 @@ folder, offline, on the same box that produced it.
 | --- | --- |
 | `scan` | Everything below, over one server directory, in one pass. |
 | `log` | What went wrong, which plugin is to blame, and what to do about it. |
+| `spark` | Which tick-thread hotspot category and plugin frame dominate an offline Spark text call-tree, collapsed flamegraph, or JSON sampler export? |
 | `config` | Is this server exposed or misconfigured - judged across `server.properties`, `bukkit.yml`, `spigot.yml` and the Paper configs together, not one file at a time? |
 | `flags` | Do the JVM flags in the start script do what whoever wrote them thought? |
 | `plugins` | What is installed, what is broken about the set, and where did each jar come from? |
@@ -96,6 +97,9 @@ java -jar serverdoctor.jar log /srv/mc/logs/latest.log --plugins /srv/mc/plugins
 # A rolled log from a host, straight out of the archive
 java -jar serverdoctor.jar log logs/2026-08-24-1.log.gz
 
+# An offline Spark text call-tree, collapsed flamegraph (.folded), or JSON sampler export
+java -jar serverdoctor.jar spark spark-tree.txt --plugins /srv/mc/plugins
+
 # Configuration, judged across files
 java -jar serverdoctor.jar config /srv/mc
 
@@ -141,19 +145,29 @@ default) decides the exit code so a scan can gate a deploy.
    - `YamlSource` composes SnakeYAML AST nodes with `SafeConstructor` (zero object instantiation) while
      preserving 1-based line numbers and duplicate keys that standard loaders silently overwrite.
    - `RegionFileHeader` inspects only the 8 KiB Anvil `.mca` sector table without decompressing chunks.
-2. **Eight cross-artifact audits (`log`, `config`, `flags`, `plugins`, `world`, `crash`, `perms`, `diff`)**:
-   - **Folia region threading & entity-density attribution**: detects `TickThread.ensureTickThread` off-region
-     world access, synchronous `Entity.teleport` (`teleportAsync` required), unsupported `CraftScheduler` calls
-     (`L017`), per-region `FoliaWatchdogThread` stalls (`L018`), live regional MSPT overloads with entity-type
+2. **Nine cross-artifact audits (`log`, `spark`, `config`, `flags`, `plugins`, `world`, `crash`, `perms`, `diff`)**:
+   - **Folia region threading, stall triage & entity-density attribution**: detects `TickThread.ensureTickThread`
+     off-region world access, synchronous `Entity.teleport` (`teleportAsync` required), unsupported `CraftScheduler`
+     calls (`L017`), per-region `FoliaWatchdogThread` stalls (`L018`), root-cause classification of Folia stalls
+     into cross-region `CompletableFuture.join` deadlocks, lock contention with peer owner attribution, blocking
+     socket/JDBC I/O, disk I/O, or regionizer barriers (`L028`), live regional MSPT overloads with entity-type
      density attribution (`L025`), and `threaded-regions.threads` starvation (`C023`).
+   - **Spark profiler flamegraph hotspot categorization**: parses offline Spark indented call-trees, collapsed
+     flamegraph stacks (`.folded`), and Spark JSON sampler trees (`spark` CLI / `analyze_spark_profile` MCP /
+     log-embedded `[spark]` trees), filters out idle inter-tick `waitUntilNextTick` parking, categorizes dominant
+     tick-thread hotspots into seven root-cause classes (`JDBC_OR_NETWORK_IO`, `DISK_OR_CONFIG_IO`,
+     `LOCK_OR_FUTURE_WAIT`, `ENTITY_AI_AND_COLLISIONS`, `HOPPER_AND_BLOCK_ENTITIES`, `SYNC_CHUNK_AND_WORLDGEN`,
+     `PLUGIN_CPU_HOTSPOT`), and attributes hotspots to the calling plugin frame (`L027`).
    - **G1GC & Generational ZGC**: detects stop-the-world GC pauses exceeding the 50 ms server tick budget
      (`L019`), Full GC / `To-space exhausted` / ZGC `Allocation Stall` / >85% post-GC live heap thrashing
      (`L020`), legacy or under-provisioned ZGC flags (`F013`), and inverted G1 young-gen bounds (`F014`).
-   - **Paper 26.3 & Moonrise chunk system**: detects synchronous chunk loads blocking tick threads (`L021`),
+   - **Paper 26.3+ & Moonrise chunk system**: detects synchronous chunk loads blocking tick threads (`L021`),
      regionfile save failures and `.mcc` oversized chunk overflows (`L022`), Moonrise async chunk generation
      worker stalls and re-entrant chunk loads (`L026`), bottlenecked `chunk-system` thread pools (`C018`),
-     pathological villager POI `tick-rates` (`C024`), and `max-entity-collisions` / `entity-activation-range`
-     mismatches against `simulation-distance` (`C025`).
+     pathological villager POI `tick-rates` (`C024`), `max-entity-collisions` / `entity-activation-range`
+     mismatches (`C025`), disabled `packet-limiter` flood ceilings (`C026`), unbounded per-player `chunk-loading-basic`
+     / `chunk-loading-advanced` limits (`C027`), chunk/player autosave stalls and `pause-when-empty-seconds`
+     conflicts with RCON or proxies (`C028`), and inverted `despawn-ranges` or unthrottled hopper move events (`C029`).
 3. **Reporters (`ConsoleReporter`, `JsonReporter`, `SarifReporter`, `McpServer`)**:
    - Emits grouped terminal diagnostics, flat schema-v1 JSON, OASIS SARIF v2.1.0 with deduplicated driver
      rules and 1-based line regions, or JSON-RPC 2.0 MCP tool responses over stdio.
@@ -179,7 +193,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: SalyyS1/serverdoctor@v0.5.0
+      - uses: SalyyS1/serverdoctor@v0.6.0
         with:
           target: ./server
           mode: scan
@@ -379,8 +393,9 @@ Stated plainly, because a tool that reports nothing looks the same as a tool tha
   can put a library's package in the frame you would otherwise blame, and the bracketed name in a log
   line is the descriptor's `prefix:` when one is set, which need not resemble the plugin's name.
 - `diff` takes no side. It reports that two servers differ, never which one is right.
-- It does not read a timings or spark report. Tick-time analysis is a different problem and is not
-  pretended at here.
+- `spark` reads offline Spark text call-trees, collapsed flamegraph stacks, JSON sampler trees, and
+  log-embedded `[spark]` dumps; it does not fetch hosted `spark.lucko.me` URLs over the network or decode
+  protobuf `.sparkprofile` blobs.
 - `plugins --online` matching nothing is not a safety finding. Paid plugins, private builds and
   pruned releases all fail to match for ordinary reasons. A Hangar answer is weaker than a Modrinth one
   by construction - Hangar has no digest endpoint, so it has to be asked by name - and the findings say
@@ -389,9 +404,9 @@ Stated plainly, because a tool that reports nothing looks the same as a tool tha
 ## With an AI agent
 
 `serverdoctor mcp` speaks the Model Context Protocol over stdio, exposing `triage_log`,
-`audit_config`, `audit_jvm_flags`, `audit_plugins`, `audit_worlds`, `read_crash_reports`,
-`audit_access_lists`, `diff_servers` and `list_rules`. All nine are read-only and return the JSON
-report. For a client that reads the usual config file:
+`analyze_spark_profile`, `audit_config`, `audit_jvm_flags`, `audit_plugins`, `audit_worlds`,
+`read_crash_reports`, `audit_access_lists`, `diff_servers` and `list_rules`. All ten are read-only and
+return the JSON report. For a client that reads the usual config file:
 
 ```json
 {
@@ -420,7 +435,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-111 rules across the eight audits. Every `source:` line names a file and line in Paper or
+117 rules across the nine audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 

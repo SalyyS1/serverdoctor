@@ -4,6 +4,7 @@ import com.salyvn.serverdoctor.core.BuildInfo
 import com.salyvn.serverdoctor.core.FindingSink
 import com.salyvn.serverdoctor.core.ScanReport
 import com.salyvn.serverdoctor.core.Severity
+import com.salyvn.serverdoctor.input.YamlEntry
 import com.salyvn.serverdoctor.input.YamlSource
 import java.nio.file.Files
 
@@ -52,6 +53,10 @@ class ConfigAudit {
         checkFoliaRegionThreads(configs, sink)
         checkPaperTickRates(configs, sink)
         checkEntityCollisionsAndActivation(configs, sink)
+        checkPacketLimiter(configs, sink)
+        checkChunkLoadingLimits(configs, sink)
+        checkAutosaveAndEmptyPause(configs, sink)
+        checkDespawnAndHoppers(configs, sink)
 
         return ScanReport(
             tool = BuildInfo.NAME,
@@ -539,6 +544,226 @@ class ConfigAudit {
                         )
                     }
                 }
+            }
+        }
+    }
+
+    private fun checkPacketLimiter(configs: ServerConfigSet, sink: FindingSink) {
+        val global = configs.paperGlobal ?: return
+        if (!global.ok) return
+
+        global["packet-limiter.all-packets.max-packet-rate"]?.let { entry ->
+            val rate = entry.value.toDoubleOrNull()
+            if (rate != null && (rate <= 0.0 || rate >= 50_000.0)) {
+                sink.add(
+                    rule = ConfigRules.PAPER_26_PACKET_LIMITER_HAZARD,
+                    location = "${global.label}:${entry.line}",
+                    detail = "packet-limiter.all-packets.max-packet-rate is ${entry.value} (Paper 26.3 default is 500.0); disabling or setting extreme packet rate ceilings exposes Netty and item-component decoders to packet floods.",
+                )
+            }
+        }
+
+        global["packet-limiter.all-packets.interval"]?.let { entry ->
+            val interval = entry.value.toDoubleOrNull()
+            if (interval != null && interval <= 0.0) {
+                sink.add(
+                    rule = ConfigRules.PAPER_26_PACKET_LIMITER_HAZARD,
+                    location = "${global.label}:${entry.line}",
+                    detail = "packet-limiter.all-packets.interval is ${entry.value} (default 7.0 seconds); non-positive window intervals disable sliding-window packet rate tracking.",
+                )
+            }
+        }
+
+        for (entry in global.under("packet-limiter.overrides")) {
+            if (!entry.path.endsWith(".max-packet-rate")) continue
+            val rate = entry.value.toDoubleOrNull() ?: continue
+            if (rate <= 0.0) {
+                sink.add(
+                    rule = ConfigRules.PAPER_26_PACKET_LIMITER_HAZARD,
+                    location = "${global.label}:${entry.line}",
+                    detail = "${entry.path} is ${entry.value}, disabling rate limiting for that serverbound packet class.",
+                    severityOverride = Severity.WARNING,
+                )
+            }
+        }
+    }
+
+    private fun checkChunkLoadingLimits(configs: ServerConfigSet, sink: FindingSink) {
+        val global = configs.paperGlobal ?: return
+        if (!global.ok) return
+
+        global["chunk-loading-basic.player-max-chunk-load-rate"]?.let { entry ->
+            val rate = entry.value.toDoubleOrNull()
+            if (rate != null) {
+                when {
+                    rate == 0.0 -> sink.add(
+                        rule = ConfigRules.PAPER_26_CHUNK_LOADING_THROTTLE,
+                        location = "${global.label}:${entry.line}",
+                        detail = "chunk-loading-basic.player-max-chunk-load-rate is 0.0, halting per-player chunk loading so players hang in unloaded void.",
+                        severityOverride = Severity.CRITICAL,
+                    )
+                    rate < 0.0 || rate > 1000.0 -> sink.add(
+                        rule = ConfigRules.PAPER_26_CHUNK_LOADING_THROTTLE,
+                        location = "${global.label}:${entry.line}",
+                        detail = "chunk-loading-basic.player-max-chunk-load-rate is ${entry.value} (default 100.0); removing per-player load backpressure lets fast movement saturate Moonrise workers.",
+                    )
+                }
+            }
+        }
+
+        global["chunk-loading-basic.player-max-chunk-send-rate"]?.let { entry ->
+            val rate = entry.value.toDoubleOrNull()
+            if (rate != null && rate == 0.0) {
+                sink.add(
+                    rule = ConfigRules.PAPER_26_CHUNK_LOADING_THROTTLE,
+                    location = "${global.label}:${entry.line}",
+                    detail = "chunk-loading-basic.player-max-chunk-send-rate is 0.0, preventing chunks from being sent to connected clients.",
+                    severityOverride = Severity.CRITICAL,
+                )
+            }
+        }
+
+        global["chunk-loading-advanced.player-max-concurrent-chunk-generates"]?.let { entry ->
+            val gens = entry.value.toIntOrNull()
+            if (gens != null && (gens < -1 || gens > 64)) {
+                sink.add(
+                    rule = ConfigRules.PAPER_26_CHUNK_LOADING_THROTTLE,
+                    location = "${global.label}:${entry.line}",
+                    detail = "chunk-loading-advanced.player-max-concurrent-chunk-generates is $gens (default 0 for auto); extreme per-player generation concurrency starves Moonrise worker pools.",
+                )
+            }
+        }
+    }
+
+    private fun checkAutosaveAndEmptyPause(configs: ServerConfigSet, sink: FindingSink) {
+        val global = configs.paperGlobal
+        if (global != null && global.ok) {
+            global["player-auto-save.max-per-tick"]?.let { entry ->
+                val maxPerTick = entry.value.toIntOrNull()
+                if (maxPerTick != null && maxPerTick == 0) {
+                    sink.add(
+                        rule = ConfigRules.PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE,
+                        location = "${global.label}:${entry.line}",
+                        detail = "player-auto-save.max-per-tick is 0, preventing incremental player NBT flushes and risking inventory loss on crash.",
+                        severityOverride = Severity.CRITICAL,
+                    )
+                }
+            }
+            global["player-auto-save.rate"]?.let { entry ->
+                val rate = entry.value.toIntOrNull()
+                if (rate != null && rate in 1..40) {
+                    sink.add(
+                        rule = ConfigRules.PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE,
+                        location = "${global.label}:${entry.line}",
+                        detail = "player-auto-save.rate is $rate ticks (<= 2 seconds), causing frequent synchronous player data writes.",
+                    )
+                }
+            }
+        }
+
+        val worldFiles = listOfNotNull(configs.paperWorldDefaults) +
+            configs.extras.filter { it.label.lowercase().endsWith("paper-world.yml") }
+        for (file in worldFiles) {
+            if (!file.ok) continue
+            file["chunks.auto-save-interval"]?.let { entry ->
+                val interval = entry.value.toIntOrNull()
+                if (interval != null) {
+                    when {
+                        interval == 0 || interval < -1 -> sink.add(
+                            rule = ConfigRules.PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE,
+                            location = "${file.label}:${entry.line}",
+                            detail = "chunks.auto-save-interval is $interval, disabling world chunk auto-saving and risking terrain rollback on crash.",
+                            severityOverride = Severity.CRITICAL,
+                        )
+                        interval in 1..200 -> sink.add(
+                            rule = ConfigRules.PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE,
+                            location = "${file.label}:${entry.line}",
+                            detail = "chunks.auto-save-interval is $interval ticks (<= 10 seconds), thrashing Moonrise RegionFileIOThread writes.",
+                        )
+                    }
+                }
+            }
+        }
+
+        val props = configs.serverProperties
+        val pauseEntry = props?.get("pause-when-empty-seconds")
+        val pauseSeconds = pauseEntry?.value?.toIntOrNull()
+        if (props != null && pauseEntry != null && pauseSeconds != null && pauseSeconds > 0) {
+            val rconEnabled = props.bool("enable-rcon") == true
+            val velocityEnabled = configs.paperGlobal?.bool("proxies.velocity.enabled") == true
+            val bungeeEnabled = configs.spigot?.bool("settings.bungeecord") == true
+            if (rconEnabled || velocityEnabled || bungeeEnabled) {
+                val activeSurface = listOfNotNull(
+                    "RCON".takeIf { rconEnabled },
+                    "Velocity forwarding".takeIf { velocityEnabled },
+                    "BungeeCord forwarding".takeIf { bungeeEnabled },
+                ).joinToString(" and ")
+                sink.add(
+                    rule = ConfigRules.PAPER_26_AUTOSAVE_AND_EMPTY_PAUSE,
+                    location = "${props.path}:${pauseEntry.line}",
+                    detail = "pause-when-empty-seconds=$pauseSeconds is active alongside $activeSurface; pausing the tick loop when empty stalls RCON commands, proxy health probes, and background tasks.",
+                )
+            }
+        }
+    }
+
+    private fun checkDespawnAndHoppers(configs: ServerConfigSet, sink: FindingSink) {
+        val viewChunks = configs.serverProperties?.int("view-distance")
+        val simChunks = configs.serverProperties?.int("simulation-distance")
+        val maxActiveChunks = maxOf(viewChunks ?: 0, simChunks ?: 0).takeIf { it > 0 }
+        val worldFiles = listOfNotNull(configs.paperWorldDefaults) +
+            configs.extras.filter { it.label.lowercase().endsWith("paper-world.yml") }
+
+        for (file in worldFiles) {
+            if (!file.ok) continue
+            val prefix = "entities.spawning.despawn-ranges"
+            val entries = file.under(prefix)
+            val byCategory = linkedMapOf<String, MutableMap<String, YamlEntry>>()
+            for (entry in entries) {
+                val rel = entry.path.removePrefix("$prefix.")
+                val parts = rel.split('.')
+                when {
+                    parts.size == 2 && (parts[1] == "soft" || parts[1] == "hard") -> {
+                        byCategory.getOrPut(parts[0]) { linkedMapOf() }[parts[1]] = entry
+                    }
+                    parts.size == 3 && parts[1] == "horizontal" && (parts[2] == "soft" || parts[2] == "hard") -> {
+                        byCategory.getOrPut(parts[0]) { linkedMapOf() }[parts[2]] = entry
+                    }
+                }
+            }
+
+            for ((category, bounds) in byCategory) {
+                val softEntry = bounds["soft"]
+                val hardEntry = bounds["hard"]
+                val soft = softEntry?.value?.toIntOrNull()
+                val hard = hardEntry?.value?.toIntOrNull()
+                if (soft != null && hard != null && soft > 0 && hard > 0 && soft >= hard) {
+                    sink.add(
+                        rule = ConfigRules.PAPER_26_DESPAWN_AND_HOPPER_CONFIG,
+                        location = "${file.label}:${softEntry.line}",
+                        detail = "despawn-ranges.$category has soft=$soft >= hard=$hard, inverting random despawn distance so mobs never enter gradual despawning before hard removal.",
+                    )
+                } else if (hard != null && hardEntry != null && maxActiveChunks != null) {
+                    val ceilingBlocks = (maxActiveChunks + 2) * 16
+                    if (hard > ceilingBlocks) {
+                        sink.add(
+                            rule = ConfigRules.PAPER_26_DESPAWN_AND_HOPPER_CONFIG,
+                            location = "${file.label}:${hardEntry.line}",
+                            detail = "despawn-ranges.$category hard=$hard blocks exceeds loaded chunk ring ($ceilingBlocks blocks for distance $maxActiveChunks), retaining border-chunk mobs that exhaust spawn caps.",
+                        )
+                    }
+                }
+            }
+
+            val cooldownWhenFull = file.bool("hopper.cooldown-when-full")
+            val disableMoveEvent = file.bool("hopper.disable-move-event")
+            if (cooldownWhenFull == false && disableMoveEvent == false) {
+                val line = file["hopper.cooldown-when-full"]?.line ?: file["hopper.disable-move-event"]?.line ?: 1
+                sink.add(
+                    rule = ConfigRules.PAPER_26_DESPAWN_AND_HOPPER_CONFIG,
+                    location = "${file.label}:$line",
+                    detail = "hopper.cooldown-when-full and hopper.disable-move-event are both false, forcing InventoryMoveItemEvent allocation and full container slot scans every tick on full hoppers.",
+                )
             }
         }
     }

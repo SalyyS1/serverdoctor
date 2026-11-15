@@ -74,6 +74,17 @@ class McpServerTest {
     }
 
     @Test
+    fun `analyzes inline spark call-tree through analyze_spark_profile mcp tool`() {
+        val profile = "Server thread 100.00%\\n  |- com.example.shop.DbStore.query() 58.40%\\n  |  \\\\- com.mysql.cj.jdbc.ClientPreparedStatement.executeQuery() 58.40%"
+        val response = server.handle(
+            """{"jsonrpc":"2.0","id":5,"method":"tools/call","params":{"name":"analyze_spark_profile","arguments":{"content":"$profile"}}}"""
+        )!!
+        assertTrue(response.contains("L027"), "expected L027 hotspot categorization in $response")
+        assertTrue(response.contains("com.example.shop"), "expected plugin attribution in $response")
+        assertTrue(response.contains("\"isError\":false"))
+    }
+
+    @Test
     fun `the rule catalogue has unique ids and no empty provenance`() {
         val rules = RuleCatalog.all
         assertEquals(rules.size, rules.map { it.id }.toSet().size, "duplicate rule ids")

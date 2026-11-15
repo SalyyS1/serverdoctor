@@ -302,7 +302,7 @@
       </div>
       <nav class="nav-links">
         <a href="https://github.com/SalyyS1/serverdoctor">GitHub Repository</a>
-        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.5.0</a>
+        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.6.0</a>
         <a href="https://salyys1.github.io/foliascan/">FoliaScan</a>
         <a href="https://salyys1.github.io/pluginscope/">PluginScope</a>
         <a href="https://salyys1.github.io/minecraftkit/">MinecraftKit</a>
@@ -350,7 +350,7 @@
     <div class="findings" id="findingsList"></div>
 
     <footer>
-      <div>ServerDoctor v0.5.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
+      <div>ServerDoctor v0.6.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
       <div>Companion tools: <a href="https://github.com/SalyyS1/foliascan">foliascan</a> | <a href="https://github.com/SalyyS1/pluginscope">pluginscope</a> | <a href="https://github.com/SalyyS1/minecraftkit">minecraftkit</a></div>
     </footer>
   </div>
@@ -366,6 +366,10 @@
             text: [
               "[19:15:30] [Server thread/WARN]: [spark] Slow tick detected: 482ms (threshold: 100ms)",
               "[19:15:32] [Server thread/INFO]: [spark] Flame graph exported to https://spark.lucko.me/abcXYZ123",
+              "[19:15:33] [Server thread/INFO]: [spark] Server thread 100.00% (5000ms)",
+              "[19:15:33] [Server thread/INFO]: [spark]   |- net.minecraft.server.MinecraftServer.tickServer() 94.20% (4710ms)",
+              "[19:15:33] [Server thread/INFO]: [spark]   |  |- com.example.economy.SqlLedger.getBalance(SqlLedger.java:88) 64.20% (3210ms)",
+              "[19:15:33] [Server thread/INFO]: [spark]   |  |  \\- com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:181) 64.20% (3210ms)",
               "[20:01:15] [Netty Epoll Server IO #1/ERROR]: io.netty.handler.codec.EncoderException: Packet too large: 2491823 bytes",
               "\tat io.netty.handler.codec.MessageToByteEncoder.write(MessageToByteEncoder.java:107)",
               "\tat com.example.customprotocol.PacketInterceptor.encode(PacketInterceptor.java:45)",
@@ -374,7 +378,7 @@
           },
           {
             name: "server.properties",
-            text: "online-mode=true\nnetwork-compression-threshold=32\nlevel-name=world\n"
+            text: "online-mode=true\nnetwork-compression-threshold=32\nenable-rcon=true\nrcon.password=s3cr3t-token\npause-when-empty-seconds=60\nlevel-name=world\n"
           },
           {
             name: "spigot.yml",
@@ -382,7 +386,7 @@
           },
           {
             name: "config/paper-global.yml",
-            text: "version: 28\ntimings:\n  enabled: true\nitem-validation:\n  resolve-selectors-in-books: true\n"
+            text: "version: 28\ntimings:\n  enabled: true\nitem-validation:\n  resolve-selectors-in-books: true\npacket-limiter:\n  all-packets:\n    interval: 7.0\n    max-packet-rate: -1.0\n"
           }
         ],
         folia: [
@@ -495,6 +499,8 @@
         L024: { sev: "critical", title: "Netty networking pipeline packet compression failure or direct memory leak", fix: "Tune network-compression-threshold in server.properties and verify -XX:MaxDirectMemorySize.", prov: "io.netty.handler.codec.EncoderException & OutOfDirectMemoryError" },
         L025: { sev: "warning", title: "Folia or Paper regional tick lag with concentrated entity-type density", fix: "Target the dominant entity class: raise villager POI sensor/behavior tick-rates, cap collisions.max-entity-collisions, or enable hopper.cooldown-when-full.", prov: "PaperMC/Folia TickRegions & CommandServerHealth, Paper EntityCommand" },
         L026: { sev: "critical", title: "Moonrise async chunk generation worker stall, re-entrant load, or stage failure", fix: "Remove blocking getChunkAt or CompletableFuture.join calls from custom ChunkGenerator/BlockPopulator code and keep chunk-system.worker-threads at -1.", prov: "PaperMC/Paper ChunkTaskScheduler & NewChunkHolder" },
+        L027: { sev: "critical", title: "Spark profiler call-tree or flamegraph shows a dominant tick-thread hotspot", fix: "Move JDBC, HTTP, Redis, and disk I/O onto AsyncScheduler or Folia async pools, eliminate blocking CompletableFuture.join, or tune entity/hopper intervals.", prov: "lucko/spark CallTree / StackTraceNode & collapsed flamegraph profiles" },
+        L028: { sev: "critical", title: "Folia region thread stall root-cause classified: cross-region wait, lock contention, or blocking I/O", fix: "Replace CompletableFuture.join on TickRegionThreads with EntityScheduler/RegionScheduler callbacks, eliminate cross-region shared locks, and move socket/JDBC I/O to AsyncScheduler.", prov: "PaperMC/Folia FoliaWatchdogThread.java & ThreadedRegionizer.java" },
         F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
         F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
         F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
@@ -512,6 +518,10 @@
         C023: { sev: "warning", title: "Folia threaded-regions pool is serialised, over-committed, or starving chunk workers", fix: "Set threaded-regions.threads to -1 or leave 25-35% of cores for Moonrise chunk workers, Netty, and GC.", prov: "PaperMC/Folia GlobalConfiguration.java (ThreadedRegions.threads)" },
         C024: { sev: "warning", title: "Paper 26.3 world tick-rates force hyper-frequent villager POI scans or zeroed intervals", fix: "Set tick-rates.sensor.villager.secondarypoisensor to 40..80, validatenearbypoi to 60 or -1, and avoid 0 intervals.", prov: "PaperMC/Paper WorldConfiguration.java (TickRates)" },
         C025: { sev: "warning", title: "Unbounded max-entity-collisions or entity-activation-range exceeding simulation distance", fix: "Set collisions.max-entity-collisions between 2 and 8 and keep entity-activation-range <= simulation-distance * 16.", prov: "PaperMC/Paper WorldConfiguration.java & SpigotConfig.java" },
+        C026: { sev: "critical", title: "Paper 26.3 packet-limiter rate ceiling or window interval is disabled", fix: "Restore packet-limiter.all-packets.max-packet-rate to 500.0 with a positive interval such as 7.0 seconds.", prov: "PaperMC/Paper GlobalConfiguration.java (PacketLimiter)" },
+        C027: { sev: "warning", title: "Paper 26.3 per-player chunk load/send rate or concurrent worldgen cap is misconfigured", fix: "Set chunk-loading-basic.player-max-chunk-load-rate between 50.0 and 250.0 and keep player-max-chunk-send-rate != 0.", prov: "PaperMC/Paper GlobalConfiguration.java (ChunkLoadingBasic / Advanced)" },
+        C028: { sev: "warning", title: "Paper 26.3 chunk/player autosave stalls persistence or pause-when-empty halts network services", fix: "Keep chunks.auto-save-interval at -1 or >= 1200, player-auto-save.max-per-tick != 0, and pause-when-empty-seconds <= 0 on RCON/proxy servers.", prov: "PaperMC/Paper GlobalConfiguration.java, WorldConfiguration.java & server.properties" },
+        C029: { sev: "warning", title: "Paper 26.3 entity despawn ring inversion/overflow or unthrottled hopper move events", fix: "Keep despawn-ranges soft < hard within (simulation-distance + 1) * 16 blocks and enable hopper.cooldown-when-full=true.", prov: "PaperMC/Paper WorldConfiguration.java (DespawnRanges & Hopper)" },
         X001: { sev: "critical", title: "The server crashed", fix: "Start from the outermost plugin frame in the crash stack trace.", prov: "Minecraft Crash Report header & stacktrace" }
       };
 
@@ -644,6 +654,39 @@
         }
 
         let activeWatchdogKey = null;
+        let foliaWatchdogStart = null;
+        const foliaWatchdogFrames = [];
+        const sparkTreeNodes = [];
+        let sparkFirstLine = null;
+        const collapsedSamples = [];
+        let collapsedTotal = 0;
+
+        function classifySparkStack(chain) {
+          const joined = chain.join(" ");
+          if (/waitUntilNextTick|sleepForTick|runTasksUntil/i.test(joined)) return null;
+          if (/HikariPool|mysql|mariadb|postgresql|sqlite|SocketInputStream|SocketChannel|HttpClient|okhttp|jedis|lettuce|mongodb/i.test(joined)) return "JDBC_OR_NETWORK_IO";
+          if (/FileInputStream|FileOutputStream|FileChannelImpl|RandomAccessFile|YamlConfiguration|Files\.read|Files\.write/i.test(joined)) return "DISK_OR_CONFIG_IO";
+          if (/CompletableFuture\.(?:join|waitingGet|get)|FutureTask\.get|LockSupport\.park|ReentrantLock|CountDownLatch/i.test(joined)) return "LOCK_OR_FUTURE_WAIT";
+          if (/HopperBlockEntity|pushItems|suckInItems|InventoryMoveItemEvent/i.test(joined)) return "HOPPER_AND_BLOCK_ENTITIES";
+          if (/SyncLoadFinder|getChunkAt|ChunkStatus|WorldGenRegion/i.test(joined)) return "SYNC_CHUNK_AND_WORLDGEN";
+          if (/Brain\.tick|GoalSelector|PoiManager|Villager\.customServerAiStep|pushEntities|getCrammingCollisions/i.test(joined)) return "ENTITY_AI_AND_COLLISIONS";
+          return null;
+        }
+
+        const DRIVER_PKGS = ["com.zaxxer.hikari.", "com.mysql.", "org.mariadb.", "org.postgresql.", "org.sqlite.", "redis.clients.", "io.lettuce.", "okhttp3.", "org.yaml.snakeyaml.", "com.google.gson."];
+        function blameFromChain(chain) {
+          let fallback = null;
+          for (let k = chain.length - 1; k >= 0; k--) {
+            const m = chain[k].match(/(?:[\w.$@-]*\/)*([a-zA-Z_][\w$]*(?:\.[a-zA-Z_][\w$]*){2,})\.[A-Za-z0-9_$<>]+/);
+            if (!m) continue;
+            const cls = m[1];
+            if (SERVER_PKGS.some(p => cls.startsWith(p))) continue;
+            if (!DRIVER_PKGS.some(p => cls.startsWith(p))) return cls;
+            if (!fallback) fallback = cls;
+          }
+          return fallback;
+        }
+
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
           const lineNo = i + 1;
@@ -652,6 +695,32 @@
           if (srvMatch && !facts["server"]) facts["server"] = srvMatch[1].trim();
           const mcMatch = line.match(/Starting minecraft server version (\S+)/);
           if (mcMatch && !facts["minecraft"]) facts["minecraft"] = mcMatch[1];
+
+          const collapsedMatch = line.match(/^([^;\r\n]+(?:;[^;\r\n]+){2,})\s+(\d+)\s*$/);
+          if (collapsedMatch) {
+            const parts = collapsedMatch[1].split(";");
+            const weight = Number(collapsedMatch[2]);
+            if (/Server thread|Region Scheduler|TickRegionThread/i.test(parts[0]) && weight > 0) {
+              collapsedTotal += weight;
+              collapsedSamples.push({ parts: parts.slice(1), weight, lineNo, raw: line.trim() });
+            }
+            continue;
+          }
+
+          const sparkPayload = line.replace(/^\[[^\]]+\]\s*\[[^\]]+\]:\s*(?:\[spark\]\s*)?/i, "");
+          const treeMatch = sparkPayload.match(/^([ |`\\+\u2500-\u257f-]*)\s*([A-Za-z0-9_$.<>\/]+\([^\r\n)]*\)|[A-Za-z0-9_$.<>\/]+\.[A-Za-z0-9_$<>]+)\s+(\d+(?:\.\d+)?)%(?:\s*\((\d+(?:\.\d+)?)ms\))?/);
+          if (treeMatch && (line.includes("[spark]") || /[|`\\]|(?:\u251c|\u2514)/.test(treeMatch[1]))) {
+            if (!sparkFirstLine) sparkFirstLine = lineNo;
+            sparkTreeNodes.push({
+              depth: treeMatch[1].length,
+              frame: treeMatch[2].trim(),
+              pct: parseFloat(treeMatch[3]),
+              ms: treeMatch[4] ? parseFloat(treeMatch[4]) : null,
+              lineNo,
+              raw: sparkPayload.trim()
+            });
+            continue;
+          }
 
           const block = [line];
           let j = i + 1;
@@ -665,6 +734,8 @@
 
           if (/DO NOT REPORT THIS TO FOLIA|(?:Tick region|Region thread)[^\n]*(?:stalled|has not responded)/i.test(line)) {
             activeWatchdogKey = "L018::folia-stall";
+            if (!foliaWatchdogStart) foliaWatchdogStart = lineNo;
+            for (const fr of frames) foliaWatchdogFrames.push(fr);
             addGrouped("L018", "folia-stall", lineNo, "Folia region tick thread stalled past watchdog timeout" + (blame ? (" (" + blame + ")") : "") + ".", frames);
             continue;
           }
@@ -673,10 +744,12 @@
             addGrouped("L001", "watchdog", lineNo, "Paper watchdog fired because the main thread stalled past timeout-time.", frames);
             continue;
           }
-          if (activeWatchdogKey && /(?:Watchdog|Folia Region Watchdog)/i.test(line) && /\tat\s/.test(line)) {
-            const atPart = line.slice(line.indexOf("at ")).trim();
+          if (activeWatchdogKey && /(?:Watchdog|Folia Region Watchdog)/i.test(line) && (/\tat\s/.test(line) || /waiting to lock|parking to wait|owned by/i.test(line))) {
+            const idxAt = line.indexOf("at ");
+            const atPart = idxAt >= 0 ? line.slice(idxAt).trim() : line.trim();
+            if (activeWatchdogKey === "L018::folia-stall") foliaWatchdogFrames.push(atPart);
             const entry = grouped.get(activeWatchdogKey);
-            if (entry && entry.evidence.length < 6) entry.evidence.push(atPart);
+            if (entry && entry.evidence.length < 6 && idxAt >= 0) entry.evidence.push(atPart);
             continue;
           }
 
@@ -819,6 +892,79 @@
               addGrouped("L025", "region-density-" + lineNo, lineNo, summary, [line.trim()]);
               continue;
             }
+          }
+        }
+
+        if (sparkTreeNodes.length > 0) {
+          const stack = [];
+          const hotByCat = new Map();
+          for (const node of sparkTreeNodes) {
+            while (stack.length && stack[stack.length - 1].depth >= node.depth) stack.pop();
+            stack.push(node);
+            if (node.pct < 12.0) continue;
+            const chain = stack.map(s => s.frame);
+            const blame = blameFromChain(chain);
+            const cat = classifySparkStack(chain) || (blame && node.pct >= 20.0 ? "PLUGIN_CPU_HOTSPOT" : null);
+            if (!cat) continue;
+            const cur = hotByCat.get(cat);
+            if (!cur || node.pct > cur.pct || (node.pct === cur.pct && node.depth > cur.depth)) {
+              hotByCat.set(cat, { cat, pct: node.pct, ms: node.ms, blame, lineNo: node.lineNo, raw: node.raw });
+            }
+          }
+          for (const h of hotByCat.values()) {
+            const sev = ((h.cat === "JDBC_OR_NETWORK_IO" || h.cat === "DISK_OR_CONFIG_IO" || h.cat === "LOCK_OR_FUTURE_WAIT") && h.pct >= 15.0) || h.pct >= 35.0 ? "critical" : "warning";
+            const msg = "Spark hotspot [" + h.cat + "] consumed " + h.pct.toFixed(1) + "% of tick samples" +
+              (h.ms !== null ? (" (" + h.ms.toFixed(0) + " ms)") : "") +
+              (h.blame ? (", attributed to " + h.blame) : "") + ".";
+            addGrouped("L027", h.cat + "@" + (h.blame || "server"), h.lineNo || sparkFirstLine || 1, msg, [h.raw], sev);
+          }
+        }
+
+        if (collapsedSamples.length > 0 && collapsedTotal > 0) {
+          const agg = new Map();
+          for (const s of collapsedSamples) {
+            const blame = blameFromChain(s.parts);
+            const cat = classifySparkStack(s.parts) || (blame ? "PLUGIN_CPU_HOTSPOT" : null);
+            if (!cat) continue;
+            const key = cat + "::" + (blame || "server");
+            const cur = agg.get(key) || { cat, blame, weight: 0, lineNo: s.lineNo, raw: s.raw };
+            cur.weight += s.weight;
+            agg.set(key, cur);
+          }
+          for (const h of agg.values()) {
+            const pct = (h.weight * 100.0) / collapsedTotal;
+            if (pct < 12.0) continue;
+            const sev = ((h.cat === "JDBC_OR_NETWORK_IO" || h.cat === "DISK_OR_CONFIG_IO" || h.cat === "LOCK_OR_FUTURE_WAIT") && pct >= 15.0) || pct >= 35.0 ? "critical" : "warning";
+            const msg = "Spark collapsed flamegraph hotspot [" + h.cat + "] consumed " + pct.toFixed(1) + "% of tick samples" +
+              (h.blame ? (", attributed to " + h.blame) : "") + ".";
+            addGrouped("L027", "collapsed-" + h.cat + "@" + (h.blame || "server"), h.lineNo, msg, [h.raw], sev);
+          }
+        }
+
+        if (foliaWatchdogStart && foliaWatchdogFrames.length > 0) {
+          const joined = foliaWatchdogFrames.join("\n");
+          const blame = blameFromChain(foliaWatchdogFrames) || firstForeignClass(foliaWatchdogFrames.map(f => "  " + f));
+          let stallKind = null;
+          let sev = "critical";
+          if (/CompletableFuture\.(?:join|waitingGet|get)|FutureTask\.get|CountDownLatch\.await/i.test(joined)) {
+            stallKind = "CROSS_REGION_FUTURE_DEADLOCK";
+            sev = "blocker";
+          } else if (/waiting to lock|ReentrantLock|ReentrantReadWriteLock|owned by/i.test(joined)) {
+            stallKind = "CROSS_REGION_LOCK_CONTENTION";
+            sev = "blocker";
+          } else if (/SocketInputStream|SocketChannel|HttpClient|HikariPool|mysql|mariadb|postgresql|jedis|lettuce|okhttp/i.test(joined)) {
+            stallKind = "REGION_BLOCKING_NETWORK_JDBC";
+          } else if (/FileInputStream|FileOutputStream|FileChannelImpl|RandomAccessFile|YamlConfiguration/i.test(joined)) {
+            stallKind = "REGION_BLOCKING_DISK_IO";
+          } else if (/ThreadedRegionizer|RegionizedTaskQueue/i.test(joined)) {
+            stallKind = "REGIONIZER_BARRIER_STALL";
+          }
+          if (stallKind) {
+            const ownerM = joined.match(/owned by\s+"([^"]+)"/i);
+            const msg = "Folia region stall classified as " + stallKind +
+              (blame ? (" in " + blame) : "") +
+              (ownerM ? (" (contending with \"" + ownerM[1] + "\")") : "") + ".";
+            addGrouped("L028", stallKind + "@" + (blame || "folia"), foliaWatchdogStart, msg, foliaWatchdogFrames.slice(0, 4), sev);
           }
         }
 
@@ -991,6 +1137,73 @@
               }
             }
           }
+          if (paperGlobal) {
+            const maxRate = paperGlobal["packet-limiter.all-packets.max-packet-rate"];
+            const rateInt = paperGlobal["packet-limiter.all-packets.interval"];
+            if (maxRate) {
+              const r = Number(maxRate.value);
+              if (r <= 0) {
+                findings.push(makeFinding("C026", paperName + ":" + maxRate.line, "packet-limiter.all-packets.max-packet-rate is " + maxRate.value + ", disabling Paper's packet flood protection.", []));
+              } else if (r > 5000) {
+                findings.push(makeFinding("C026", paperName + ":" + maxRate.line, "packet-limiter.all-packets.max-packet-rate is " + maxRate.value + " (> 5000 pps), leaving Netty exposed to packet spam.", [], "warning"));
+              }
+            }
+            if (rateInt && Number(rateInt.value) <= 0) {
+              findings.push(makeFinding("C026", paperName + ":" + rateInt.line, "packet-limiter.all-packets.interval is " + rateInt.value + " (must be > 0 seconds).", []));
+            }
+            const loadRate = paperGlobal["chunk-loading-basic.player-max-chunk-load-rate"];
+            if (loadRate && (Number(loadRate.value) < 0 || Number(loadRate.value) > 500)) {
+              findings.push(makeFinding("C027", paperName + ":" + loadRate.line, "chunk-loading-basic.player-max-chunk-load-rate is " + loadRate.value + ", allowing unbounded per-player chunk ticket storms.", []));
+            }
+            const sendRate = paperGlobal["chunk-loading-basic.player-max-chunk-send-rate"];
+            if (sendRate && Number(sendRate.value) === 0) {
+              findings.push(makeFinding("C027", paperName + ":" + sendRate.line, "chunk-loading-basic.player-max-chunk-send-rate is 0, preventing chunks from streaming to players.", [], "critical"));
+            }
+            const maxGen = paperGlobal["chunk-loading-advanced.player-max-concurrent-chunk-generates"];
+            if (maxGen && (Number(maxGen.value) < 0 || Number(maxGen.value) > 16)) {
+              findings.push(makeFinding("C027", paperName + ":" + maxGen.line, "chunk-loading-advanced.player-max-concurrent-chunk-generates is " + maxGen.value + ", allowing a single player to saturate Moonrise worldgen workers.", []));
+            }
+            const pasMax = paperGlobal["player-auto-save.max-per-tick"];
+            if (pasMax && Number(pasMax.value) === 0) {
+              findings.push(makeFinding("C028", paperName + ":" + pasMax.line, "player-auto-save.max-per-tick is 0, stalling incremental player NBT persistence.", [], "critical"));
+            }
+          }
+          const rconActive = props && props["enable-rcon"] && props["enable-rcon"].value === "true";
+          if (props && props["pause-when-empty-seconds"] && Number(props["pause-when-empty-seconds"].value) > 0 && (rconActive || velOn || bungeeOn)) {
+            const pwe = props["pause-when-empty-seconds"];
+            findings.push(makeFinding("C028", propsName + ":" + pwe.line, "pause-when-empty-seconds=" + pwe.value + " halts server ticks when empty while RCON or proxy health checks are active.", []));
+          }
+          if (paperWorld) {
+            const cSave = paperWorld["chunks.auto-save-interval"];
+            if (cSave) {
+              const sv = Number(cSave.value);
+              if (sv === 0) {
+                findings.push(makeFinding("C028", paperWorldName + ":" + cSave.line, "chunks.auto-save-interval is 0, disabling background world chunk autosaves.", [], "critical"));
+              } else if (sv > 0 && sv < 200) {
+                findings.push(makeFinding("C028", paperWorldName + ":" + cSave.line, "chunks.auto-save-interval is " + sv + " ticks (< 10s), causing constant regionfile flush churn.", []));
+              }
+            }
+            const hopCool = paperWorld["hopper.cooldown-when-full"];
+            const hopDis = paperWorld["hopper.disable-move-event"];
+            if (hopCool && hopCool.value === "false" && (!hopDis || hopDis.value !== "true")) {
+              findings.push(makeFinding("C029", paperWorldName + ":" + hopCool.line, "hopper.cooldown-when-full is false without disable-move-event=true, letting backed-up hoppers fire InventoryMoveItemEvent every transfer attempt.", []));
+            }
+            const simLimit = (props && props["simulation-distance"]) ? ((Number(props["simulation-distance"].value) + 1) * 16) : null;
+            const cats = new Set();
+            for (const k of Object.keys(paperWorld)) {
+              const m = k.match(/^entities\.spawning\.despawn-ranges\.([^.]+)\.(?:soft|hard)$/);
+              if (m) cats.add(m[1]);
+            }
+            for (const cat of cats) {
+              const sEnt = paperWorld["entities.spawning.despawn-ranges." + cat + ".soft"];
+              const hEnt = paperWorld["entities.spawning.despawn-ranges." + cat + ".hard"];
+              if (sEnt && hEnt && Number(sEnt.value) >= Number(hEnt.value)) {
+                findings.push(makeFinding("C029", paperWorldName + ":" + sEnt.line, "despawn-ranges." + cat + " soft (" + sEnt.value + ") >= hard (" + hEnt.value + "), inverting Paper's despawn ring.", []));
+              } else if (hEnt && simLimit && Number(hEnt.value) > simLimit) {
+                findings.push(makeFinding("C029", paperWorldName + ":" + hEnt.line, "despawn-ranges." + cat + ".hard is " + hEnt.value + " blocks, exceeding (simulation-distance + 1) * 16 (" + simLimit + " blocks).", []));
+              }
+            }
+          }
         }
 
         findings.sort((a, b) => (SEV_RANK[b.severity] - SEV_RANK[a.severity]) || a.ruleId.localeCompare(b.ruleId));
@@ -1145,7 +1358,7 @@
         downloadBlob("serverdoctor-report.json", JSON.stringify({
           schema: 1,
           tool: "serverdoctor-web",
-          toolVersion: "0.5.0",
+          toolVersion: "0.6.0",
           facts: lastState.facts,
           findings: lastState.findings
         }, null, 2));
@@ -1160,7 +1373,7 @@
             tool: {
               driver: {
                 name: "ServerDoctor",
-                version: "0.5.0",
+                version: "0.6.0",
                 informationUri: "https://github.com/SalyyS1/serverdoctor",
                 rules: ruleIds.map(id => ({
                   id,

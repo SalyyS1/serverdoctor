@@ -310,4 +310,155 @@ class ConfigAuditTest {
             directory.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `detects paper 26_3 packet-limiter rate ceiling and interval hazards`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-packet-limiter")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 30
+                packet-limiter:
+                  all-packets:
+                    interval: 0.0
+                    max-packet-rate: -1.0
+                  overrides:
+                    ServerboundPlaceRecipePacket:
+                      interval: 4.0
+                      max-packet-rate: 0.0
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C026" }
+            assertEquals(3, findings.size, "expected 3 C026 packet-limiter findings: $findings")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects paper 26_3 chunk-loading-basic and advanced misconfigurations without false positives`() {
+        val healthyDir = kotlin.io.path.createTempDirectory("serverdoctor-chunk-healthy")
+        try {
+            healthyDir.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            healthyDir.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(healthyDir.resolve("world"))
+            val cfg = java.nio.file.Files.createDirectories(healthyDir.resolve("config"))
+            cfg.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 30
+                chunk-loading-basic:
+                  player-max-chunk-load-rate: 100.0
+                  player-max-chunk-send-rate: -1.0
+                chunk-loading-advanced:
+                  player-max-concurrent-chunk-generates: 0
+                """.trimIndent() + "\n",
+            )
+            val cleanFindings = ConfigAudit().analyse(ServerConfigSet.read(healthyDir)).findings.filter { it.ruleId == "C027" }
+            assertTrue(cleanFindings.isEmpty(), "default Paper 26.3 chunk-loading limits must stay quiet: $cleanFindings")
+        } finally {
+            healthyDir.toFile().deleteRecursively()
+        }
+
+        val brokenDir = kotlin.io.path.createTempDirectory("serverdoctor-chunk-broken")
+        try {
+            brokenDir.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            brokenDir.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(brokenDir.resolve("world"))
+            val cfg = java.nio.file.Files.createDirectories(brokenDir.resolve("config"))
+            cfg.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 30
+                chunk-loading-basic:
+                  player-max-chunk-load-rate: 0.0
+                  player-max-chunk-send-rate: 0.0
+                chunk-loading-advanced:
+                  player-max-concurrent-chunk-generates: 128
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(brokenDir)).findings.filter { it.ruleId == "C027" }
+            assertEquals(3, findings.size, "expected 3 C027 findings: $findings")
+        } finally {
+            brokenDir.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects paper 26_3 autosave persistence hazards and pause-when-empty on network servers`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-autosave-pause")
+        try {
+            directory.resolve("server.properties").toFile().writeText(
+                """
+                online-mode=false
+                level-name=world
+                enable-rcon=true
+                rcon.password=s3cr3t-long-token
+                pause-when-empty-seconds=60
+                """.trimIndent() + "\n",
+            )
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val cfg = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            cfg.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 30
+                proxies:
+                  velocity:
+                    enabled: true
+                    secret: "shared-secret"
+                player-auto-save:
+                  max-per-tick: 0
+                """.trimIndent() + "\n",
+            )
+            cfg.resolve("paper-world-defaults.yml").toFile().writeText(
+                """
+                version: 31
+                chunks:
+                  auto-save-interval: 0
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C028" }
+            assertEquals(3, findings.size, "expected C028 for max-per-tick=0, auto-save-interval=0, and pause-when-empty: $findings")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects paper 26_3 despawn-ranges ring inversion, border overflow, and unthrottled hoppers`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-despawn-hoppers")
+        try {
+            directory.resolve("server.properties").toFile().writeText(
+                "online-mode=true\nlevel-name=world\nview-distance=8\nsimulation-distance=6\n",
+            )
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val cfg = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            cfg.resolve("paper-world-defaults.yml").toFile().writeText(
+                """
+                version: 31
+                entities:
+                  spawning:
+                    despawn-ranges:
+                      monster:
+                        horizontal:
+                          soft: 96
+                          hard: 64
+                      creature:
+                        soft: 32
+                        hard: 224
+                hopper:
+                  cooldown-when-full: false
+                  disable-move-event: false
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C029" }
+            assertEquals(3, findings.size, "expected 3 C029 findings for monster inversion, creature overflow, and hoppers: $findings")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
 }
