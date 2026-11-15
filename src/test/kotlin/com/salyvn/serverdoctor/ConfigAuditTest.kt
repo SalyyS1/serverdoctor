@@ -213,4 +213,101 @@ class ConfigAuditTest {
             directory.toFile().deleteRecursively()
         }
     }
+
+    @Test
+    fun `detects folia threaded-regions serialisation and chunk worker starvation`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-folia-threads")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-global.yml").toFile().writeText(
+                """
+                version: 30
+                threaded-regions:
+                  threads: 16
+                chunk-system:
+                  worker-threads: 2
+                """.trimIndent() + "\n",
+            )
+            configDir.resolve("folia.yml").toFile().writeText(
+                """
+                threaded-regions:
+                  threads: 1
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C023" }
+            assertEquals(2, findings.size, "expected C023 for worker starvation and threads=1: $findings")
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects paper 26_3 world tick-rates villager poi hyper-polling and zeroed intervals`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-tick-rates")
+        try {
+            directory.resolve("server.properties").toFile().writeText("online-mode=true\nlevel-name=world\n")
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-world-defaults.yml").toFile().writeText(
+                """
+                _version: 31
+                version: 31
+                tick-rates:
+                  container-update: 0
+                  grass-spread: 4
+                  sensor:
+                    villager:
+                      secondarypoisensor: 2
+                  behavior:
+                    villager:
+                      validatenearbypoi: -1
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C024" }
+            assertEquals(2, findings.size, "expected C024 for container-update=0 and secondarypoisensor=2: $findings")
+            assertTrue(findings.any { it.detail.contains("container-update is 0") })
+            assertTrue(findings.any { it.detail.contains("secondarypoisensor is 2") })
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `detects unbounded max-entity-collisions and entity-activation-range exceeding simulation distance`() {
+        val directory = kotlin.io.path.createTempDirectory("serverdoctor-collisions-activation")
+        try {
+            directory.resolve("server.properties").toFile().writeText(
+                "online-mode=true\nlevel-name=world\nview-distance=10\nsimulation-distance=6\n",
+            )
+            directory.resolve("eula.txt").toFile().writeText("eula=true\n")
+            java.nio.file.Files.createDirectories(directory.resolve("world"))
+            val configDir = java.nio.file.Files.createDirectories(directory.resolve("config"))
+            configDir.resolve("paper-world-defaults.yml").toFile().writeText(
+                """
+                version: 31
+                collisions:
+                  max-entity-collisions: 0
+                """.trimIndent() + "\n",
+            )
+            directory.resolve("spigot.yml").toFile().writeText(
+                """
+                world-settings:
+                  default:
+                    entity-activation-range:
+                      animals: 32
+                      monsters: 128
+                """.trimIndent() + "\n",
+            )
+            val findings = ConfigAudit().analyse(ServerConfigSet.read(directory)).findings.filter { it.ruleId == "C025" }
+            assertEquals(2, findings.size, "expected C025 for max-entity-collisions=0 and monsters=128 > 96: $findings")
+            assertTrue(findings.any { it.detail.contains("max-entity-collisions is 0") })
+            assertTrue(findings.any { it.detail.contains("monsters is 128 blocks, exceeding simulation-distance=6 (96 blocks)") })
+        } finally {
+            directory.toFile().deleteRecursively()
+        }
+    }
 }

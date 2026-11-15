@@ -290,6 +290,51 @@ object ConfigRules {
             "limits at their default Paper 26.3 values.",
     )
 
+    val FOLIA_REGION_THREADS_TUNING = Rule(
+        id = "C023",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Folia threaded-regions pool is serialised, over-committed, or starving chunk workers",
+        rationale = "Folia defaults threaded-regions.threads to -1 so the region scheduler sizes itself " +
+            "against host CPU cores alongside Netty and Moonrise pools. Pinning threaded-regions.threads " +
+            "to 1 or 0 eliminates regional parallelism while keeping cross-region handoff overhead, and " +
+            "allocating many region threads while pinning chunk-system.worker-threads to 1 or 2 starves " +
+            "the chunk loads and splits that active regions wait on.",
+        provenance = "PaperMC/Folia GlobalConfiguration.java (ThreadedRegions.threads, default -1) and TickRegions.java",
+        fix = "Set threaded-regions.threads to -1 (or leave at least 25 to 35 percent of physical cores " +
+            "for Moonrise chunk-system workers, Netty EventLoops, and GC threads).",
+    )
+
+    val PAPER_TICK_RATES_TUNING = Rule(
+        id = "C024",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 world tick-rates force hyper-frequent villager POI scans or zeroed intervals",
+        rationale = "In paper-world-defaults.yml and paper-world.yml, tick-rates values express the " +
+            "interval in ticks between executions (-1 uses the server default). Setting villager POI " +
+            "behaviors or sensors such as validatenearbypoi or secondarypoisensor to 1..5 forces costly " +
+            "3D point-of-interest searches almost every tick, while setting any tick-rates interval to 0 " +
+            "or below -1 disables or corrupts scheduled world updates.",
+        provenance = "$WORLD (Entities.Behavior / TickRates: secondarypoisensor default 40, validatenearbypoi default -1)",
+        fix = "Set tick-rates.sensor.villager.secondarypoisensor to 40..80, set validatenearbypoi to " +
+            "60 or -1, and replace any 0 tick-rates intervals with positive tick counts or -1.",
+    )
+
+    val ENTITY_COLLISION_ACTIVATION_TUNING = Rule(
+        id = "C025",
+        area = RuleArea.CONFIG,
+        severity = Severity.WARNING,
+        title = "Unbounded max-entity-collisions or entity-activation-range exceeding simulation distance",
+        rationale = "Setting collisions.max-entity-collisions to 0, negative, or above 32 lets stacked " +
+            "mob farms and minecarts run quadratic AABB push checks every tick. Likewise, configuring " +
+            "spigot.yml entity-activation-range radii larger than simulation-distance * 16 blocks wakes " +
+            "full entity AI goals outside the simulated chunk boundary for zero player-visible benefit.",
+        provenance = "$WORLD (Collisions.maxEntityCollisions, default 8), $SPIGOT (entity-activation-range), " +
+            "and server.properties simulation-distance",
+        fix = "Set collisions.max-entity-collisions between 2 and 8, and keep entity-activation-range " +
+            "radii at or below simulation-distance * 16 blocks.",
+    )
+
     val all: List<Rule> = listOf(
         OFFLINE_MODE_NO_PROXY,
         VELOCITY_SECRET_EMPTY,
@@ -313,5 +358,8 @@ object ConfigRules {
         NETWORK_COMPRESSION_HAZARD,
         NETTY_THREADS_BOTTLENECK,
         PAPER_26_ITEM_COMPONENT_VALIDATION,
+        FOLIA_REGION_THREADS_TUNING,
+        PAPER_TICK_RATES_TUNING,
+        ENTITY_COLLISION_ACTIVATION_TUNING,
     )
 }

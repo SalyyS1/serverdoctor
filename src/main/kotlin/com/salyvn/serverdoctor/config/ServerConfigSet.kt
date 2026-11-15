@@ -38,6 +38,8 @@ class ServerConfigSet(
     companion object {
 
         private val EXTRA_NAMES = listOf(
+            "config/folia.yml",
+            "folia.yml",
             "purpur.yml",
             "pufferfish.yml",
             "commands.yml",

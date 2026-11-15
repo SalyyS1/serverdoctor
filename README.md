@@ -142,15 +142,18 @@ default) decides the exit code so a scan can gate a deploy.
      preserving 1-based line numbers and duplicate keys that standard loaders silently overwrite.
    - `RegionFileHeader` inspects only the 8 KiB Anvil `.mca` sector table without decompressing chunks.
 2. **Eight cross-artifact audits (`log`, `config`, `flags`, `plugins`, `world`, `crash`, `perms`, `diff`)**:
-   - **Folia region threading**: detects `TickThread.ensureTickThread` off-region world access, synchronous
-     `Entity.teleport` (`teleportAsync` required), unsupported `CraftScheduler` calls (`L017`), and
-     per-region `FoliaWatchdogThread` stalls (`L018`) with plugin stack attribution.
+   - **Folia region threading & entity-density attribution**: detects `TickThread.ensureTickThread` off-region
+     world access, synchronous `Entity.teleport` (`teleportAsync` required), unsupported `CraftScheduler` calls
+     (`L017`), per-region `FoliaWatchdogThread` stalls (`L018`), live regional MSPT overloads with entity-type
+     density attribution (`L025`), and `threaded-regions.threads` starvation (`C023`).
    - **G1GC & Generational ZGC**: detects stop-the-world GC pauses exceeding the 50 ms server tick budget
      (`L019`), Full GC / `To-space exhausted` / ZGC `Allocation Stall` / >85% post-GC live heap thrashing
      (`L020`), legacy or under-provisioned ZGC flags (`F013`), and inverted G1 young-gen bounds (`F014`).
-   - **Paper Moonrise chunk system**: detects synchronous chunk loads blocking tick threads (`L021`),
-     regionfile save failures and `.mcc` oversized chunk overflows (`L022`), and bottlenecked
-     `chunk-system.io-threads` / `worker-threads` settings (`C018`).
+   - **Paper 26.3 & Moonrise chunk system**: detects synchronous chunk loads blocking tick threads (`L021`),
+     regionfile save failures and `.mcc` oversized chunk overflows (`L022`), Moonrise async chunk generation
+     worker stalls and re-entrant chunk loads (`L026`), bottlenecked `chunk-system` thread pools (`C018`),
+     pathological villager POI `tick-rates` (`C024`), and `max-entity-collisions` / `entity-activation-range`
+     mismatches against `simulation-distance` (`C025`).
 3. **Reporters (`ConsoleReporter`, `JsonReporter`, `SarifReporter`, `McpServer`)**:
    - Emits grouped terminal diagnostics, flat schema-v1 JSON, OASIS SARIF v2.1.0 with deduplicated driver
      rules and 1-based line regions, or JSON-RPC 2.0 MCP tool responses over stdio.
@@ -176,7 +179,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: SalyyS1/serverdoctor@v0.3.0
+      - uses: SalyyS1/serverdoctor@v0.5.0
         with:
           target: ./server
           mode: scan
@@ -417,7 +420,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-106 rules across the eight audits. Every `source:` line names a file and line in Paper or
+111 rules across the eight audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 

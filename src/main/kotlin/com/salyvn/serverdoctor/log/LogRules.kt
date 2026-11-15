@@ -332,6 +332,39 @@ object LogRules {
             "(-XX:MaxDirectMemorySize), and audit custom packet-listener plugins for unreleased ByteBuf allocations.",
     )
 
+    val FOLIA_REGION_ENTITY_DENSITY = Rule(
+        id = "L025",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Folia or Paper regional tick lag with concentrated entity-type density",
+        rationale = "Under Folia region threading (and Paper per-world entity ticking), entities clustered " +
+            "inside one chunk island cannot be split across multiple TickRegionThreads: one region thread " +
+            "must tick every entity in that merged region. When regional MSPT exceeds the 50 ms budget or " +
+            "single-region entity counts spike, parsing the entity-type breakdown distinguishes villager " +
+            "POI brain scans from minecart hopper collisions and unmerged item piles.",
+        provenance = "PaperMC/Folia io.papermc.paper.threadedregions.TickRegions and CommandServerHealth, " +
+            "and PaperMC/Paper io.papermc.paper.command.subcommands.EntityCommand",
+        fix = "Target the dominant entity class in the named region: raise tick-rates.behavior.villager." +
+            "validatenearbypoi and secondarypoisensor for trading halls, cap collisions.max-entity-collisions " +
+            "for mob farms, or enable hopper.cooldown-when-full and item merge radii.",
+    )
+
+    val ASYNC_CHUNK_GENERATION_STALL = Rule(
+        id = "L026",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Moonrise async chunk generation worker stall, re-entrant load, or stage failure",
+        rationale = "Paper 26.3 and Folia execute world generation stages (BIOME, NOISE, SURFACE, FEATURES, " +
+            "LIGHT) on Moonrise chunk worker threads. When a custom ChunkGenerator, BlockPopulator, or " +
+            "datapack feature blocks synchronously on another chunk future, deadlocks a worker thread, or " +
+            "stalls a generation stage for multiple seconds, chunk loading queues back up across regions.",
+        provenance = "PaperMC/Paper ca.spottedleaf.moonrise.patches.chunk_system.scheduling." +
+            "ChunkTaskScheduler and NewChunkHolder",
+        fix = "Remove blocking getChunkAt or CompletableFuture.join calls from custom ChunkGenerator and " +
+            "BlockPopulator implementations, confine worldgen mutations to LimitedRegion, and keep " +
+            "chunk-system.worker-threads at -1.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -357,5 +390,7 @@ object LogRules {
         CHUNK_IO_BOTTLENECK,
         SPARK_JFR_HOTSPOT,
         NETTY_PACKET_CONTENTION,
+        FOLIA_REGION_ENTITY_DENSITY,
+        ASYNC_CHUNK_GENERATION_STALL,
     )
 }

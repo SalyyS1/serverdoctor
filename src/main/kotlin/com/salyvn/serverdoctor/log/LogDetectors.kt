@@ -49,11 +49,208 @@ object LogDetectors {
         """(?:Packet too large|Packet was larger than I expected|String too big)""",
         RegexOption.IGNORE_CASE,
     )
+    private val REGION_LAG_HEADER = Regex(
+        """(?:Region around|Lowest region TPS|Tick region|Region tick|Region\s*\(-?\d+,\s*-?\d+\)|High entity density|Entity density|entity cramming|Chunk\s*\(-?\d+,\s*-?\d+\)[^\n]*contains\s+\d+\s+entities)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val DENSITY_ONLY_HEADER = Regex(
+        """(?:High entity density|Entity density|entity cramming|contains\s+\d+\s+entities)""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val MSPT_VALUE = Regex("""(\d+(?:\.\d+)?)\s*mspt""", RegexOption.IGNORE_CASE)
+    private val TPS_VALUE = Regex("""(\d+(?:\.\d+)?)\s*tps\b""", RegexOption.IGNORE_CASE)
+    private val TOTAL_ENTITIES = Regex("""(?:entities\s*[:=]\s*(\d+)|(\d+)\s+entities)""", RegexOption.IGNORE_CASE)
+    private val WORLD_NAME = Regex("""(?:in\s+world|of\s+world|in)\s+'([^']+)'|world\s+'([^']+)'""", RegexOption.IGNORE_CASE)
+    private val REGION_CHUNK_COORDS = Regex("""(?:chunk\s*)?\((-?\d+,\s*-?\d+)\)|chunk\s+(-?\d+,\s*-?\d+)""", RegexOption.IGNORE_CASE)
+    private val ENTITY_KV = Regex("""(?:minecraft:)?([a-z][a-z0-9_]{1,40})\s*(?::|=|\s+x)\s*(\d+)\b(?!\.\d)""", RegexOption.IGNORE_CASE)
+    private val ENTITY_COUNT_FIRST = Regex("""\b(\d+)x\s*(?:minecraft:)?([a-z][a-z0-9_]{1,40})\b""", RegexOption.IGNORE_CASE)
+    private val NON_ENTITY_TOKENS = setOf(
+        "tps", "mspt", "chunks", "chunk", "entities", "entity", "players", "player",
+        "sections", "world", "region", "tick", "ticks", "line", "threshold", "threads",
+        "ms", "top", "count", "total", "block", "blocks", "overloaded", "duration",
+    )
+
+    private val CHUNK_GEN_STALL_MSG = Regex(
+        """(?:Chunk (?:generation|task|system)[^\n]*(?:stalled|deadlock|blocked|timed out|has not progressed)|(?:Deadlock|Re-entrant chunk load)[^\n]*chunk (?:system|task|worker|generation))""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val CHUNK_GEN_SLOW_STAGE = Regex(
+        """Chunk generation[^\n]*took\s+(\d+(?:\.\d+)?)\s*ms""",
+        RegexOption.IGNORE_CASE,
+    )
+    private val CHUNK_STAGE_NAME = Regex(
+        """\b(STRUCTURE_STARTS|STRUCTURE_REFERENCES|BIOMES|NOISE|SURFACE|CARVERS|FEATURES|INITIALIZE_LIGHT|LIGHT|SPAWN|FULL)\b""",
+    )
 
     /** Class file major 52 is Java 8, and each release adds one, so the release is major - 44. */
     private const val JAVA_CLASS_FILE_OFFSET = 44
     private const val SERVER_TICK_MS = 50.0
     private const val HIGH_LIVE_OCCUPANCY = 0.85
+    private const val CHUNK_GEN_SLOW_MS = 2000.0
+
+    private data class RegionalLagHit(
+        val discriminator: String,
+        val detail: String,
+        val evidence: List<String>,
+    )
+
+    private data class ChunkGenStallHit(
+        val discriminator: String,
+        val detail: String,
+        val evidence: List<String>,
+    )
+
+    private fun isChunkWorkerThread(thread: String?): Boolean {
+        if (thread == null) return false
+        return thread.contains("Chunk System Worker", ignoreCase = true) ||
+            thread.contains("Chunk Task Worker", ignoreCase = true) ||
+            thread.contains("Moonrise Chunk Worker", ignoreCase = true) ||
+            thread.contains("WorldGen-Worker", ignoreCase = true)
+    }
+
+    private fun analyzeRegionalEntityLag(event: LogEvent): RegionalLagHit? {
+        if (isFoliaWatchdog(event)) return null
+        val text = event.fullText
+        if (!REGION_LAG_HEADER.containsMatchIn(text)) return null
+
+        val mspt = MSPT_VALUE.find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        val tps = TPS_VALUE.find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        val explicitTotal = TOTAL_ENTITIES.find(text)?.let { m ->
+            m.groupValues.drop(1).firstOrNull { it.isNotEmpty() }?.toIntOrNull()
+        }
+
+        val counts = linkedMapOf<String, Int>()
+        for (m in ENTITY_KV.findAll(text)) {
+            val rawType = m.groupValues[1].lowercase()
+            val count = m.groupValues[2].toIntOrNull() ?: continue
+            if (rawType !in NON_ENTITY_TOKENS && count > 0) {
+                counts[rawType] = maxOf(counts[rawType] ?: 0, count)
+            }
+        }
+        for (m in ENTITY_COUNT_FIRST.findAll(text)) {
+            val count = m.groupValues[1].toIntOrNull() ?: continue
+            val rawType = m.groupValues[2].lowercase()
+            if (rawType !in NON_ENTITY_TOKENS && count > 0) {
+                counts[rawType] = maxOf(counts[rawType] ?: 0, count)
+            }
+        }
+
+        val breakdownSum = counts.values.sum()
+        val effectiveTotal = explicitTotal ?: breakdownSum
+        val isLagging = (mspt != null && mspt > SERVER_TICK_MS) || (tps != null && tps < 18.0)
+        val isDensityReport = DENSITY_ONLY_HEADER.containsMatchIn(text)
+        val isDense = effectiveTotal >= 500 || (isDensityReport && effectiveTotal >= 200)
+        if (!isLagging && !isDense) return null
+
+        val world = WORLD_NAME.find(text)?.let { m ->
+            m.groupValues.drop(1).firstOrNull { it.isNotBlank() }
+        }
+        val coords = REGION_CHUNK_COORDS.find(text)?.let { m ->
+            m.groupValues.drop(1).firstOrNull { it.isNotBlank() }
+        }
+        val top = counts.entries.sortedByDescending { it.value }.take(3)
+        val dominant = top.firstOrNull()
+        val bottleneckHint = when {
+            dominant == null -> null
+            dominant.key.contains("villager") -> "villager AI/POI brain scans"
+            dominant.key.contains("minecart") || dominant.key.contains("hopper") -> "minecart/hopper inventory and collision sweeps"
+            dominant.key == "item" || dominant.key.contains("orb") -> "unmerged dropped item/XP sweeps"
+            dominant.key.contains("armor_stand") -> "armor stand tick and collision lookups"
+            else -> "concentrated ${dominant.key} entity ticking"
+        }
+
+        val detail = buildString {
+            append("Regional tick overload")
+            if (world != null) append(" in world '$world'")
+            if (coords != null) append(" around chunk ($coords)")
+            append(": ")
+            val metrics = mutableListOf<String>()
+            if (mspt != null) metrics += String.format(java.util.Locale.ROOT, "%.1f mspt", mspt)
+            if (tps != null) metrics += String.format(java.util.Locale.ROOT, "%.1f TPS", tps)
+            if (effectiveTotal > 0) metrics += "$effectiveTotal entities"
+            append(metrics.joinToString(", "))
+            if (top.isNotEmpty()) {
+                val breakdown = top.joinToString(", ") { (k, v) ->
+                    if (effectiveTotal > 0) {
+                        val pct = (v * 100) / effectiveTotal
+                        "$k=$v ($pct%)"
+                    } else {
+                        "$k=$v"
+                    }
+                }
+                append(" [top: ").append(breakdown).append(']')
+            }
+            if (bottleneckHint != null) {
+                append(", dominated by ").append(bottleneckHint)
+            }
+            append('.')
+        }
+
+        val disc = "region-density@${world ?: "default"}:${coords?.replace(" ", "") ?: "summary"}"
+        return RegionalLagHit(
+            discriminator = disc,
+            detail = detail,
+            evidence = listOf(event.message.trim()),
+        )
+    }
+
+    private fun analyzeChunkGenStall(event: LogEvent, plugins: PluginIndex = PluginIndex.EMPTY): ChunkGenStallHit? {
+        val text = event.fullText
+        val workerThread = isChunkWorkerThread(event.thread)
+        val reentrantSyncLoad = workerThread && (
+            text.contains("synchronous chunk load", ignoreCase = true) ||
+                text.contains("sync chunk load", ignoreCase = true) ||
+                text.contains("Blocking on chunk task", ignoreCase = true) ||
+                event.frames.any { it.className.endsWith("SyncLoadFinder") }
+            )
+        val explicitStall = CHUNK_GEN_STALL_MSG.containsMatchIn(text)
+        val slowStageMs = CHUNK_GEN_SLOW_STAGE.find(text)?.groupValues?.get(1)?.toDoubleOrNull()
+        val isSlowStage = slowStageMs != null && slowStageMs >= CHUNK_GEN_SLOW_MS
+        val workerWorldgenException = workerThread && event.exceptions.isNotEmpty() && (
+            text.contains("ChunkGenerator") ||
+                text.contains("BlockPopulator") ||
+                text.contains("WorldGenRegion") ||
+                text.contains("ChunkTaskScheduler") ||
+                text.contains("Starlight")
+            )
+
+        if (!reentrantSyncLoad && !explicitStall && !isSlowStage && !workerWorldgenException) {
+            return null
+        }
+
+        val stage = CHUNK_STAGE_NAME.find(text)?.groupValues?.get(1)
+        val coords = CHUNK_COORDS.find(text)?.groupValues?.get(1)
+        val blame = LogTriage.attribute(event, plugins)
+        val kind = when {
+            reentrantSyncLoad -> "re-entrant-worker-chunk-load"
+            workerWorldgenException -> "chunk-worker-exception"
+            isSlowStage -> "slow-chunk-gen-${stage ?: "stage"}"
+            else -> "chunk-gen-stall"
+        }
+
+        val detail = buildString {
+            when {
+                reentrantSyncLoad -> append("Re-entrant synchronous chunk wait inside Moonrise worker thread ")
+                    .append(event.thread ?: "Chunk Worker")
+                workerWorldgenException -> append("Unhandled worldgen exception on Moonrise worker thread ")
+                    .append(event.thread ?: "Chunk Worker")
+                isSlowStage -> append("Async chunk generation stalled for ")
+                    .append(String.format(java.util.Locale.ROOT, "%.0f ms", slowStageMs))
+                else -> append("Moonrise async chunk generation pipeline stalled or deadlocked")
+            }
+            if (stage != null) append(" during stage $stage")
+            if (coords != null) append(" at chunk ($coords)")
+            if (blame != null) append(", involving $blame")
+            append('.')
+        }
+
+        val evidence = event.frames.take(4).map { it.raw }.ifEmpty { listOf(event.message.trim()) }
+        return ChunkGenStallHit(
+            discriminator = "$kind@${blame ?: (stage ?: "moonrise")}",
+            detail = detail,
+            evidence = evidence,
+        )
+    }
 
     private fun isFoliaWatchdog(event: LogEvent): Boolean {
         if (event.message.contains("DO NOT REPORT THIS TO FOLIA")) return true
@@ -365,7 +562,17 @@ object LogDetectors {
             )
         },
 
+        Signature(LogRules.ASYNC_CHUNK_GENERATION_STALL) { event, plugins ->
+            val hit = analyzeChunkGenStall(event, plugins) ?: return@Signature null
+            DetectorMatch(
+                discriminator = hit.discriminator,
+                detail = hit.detail,
+                evidence = hit.evidence,
+            )
+        },
+
         Signature(LogRules.SYNC_CHUNK_LOAD) { event, plugins ->
+            if (analyzeChunkGenStall(event, plugins) != null) return@Signature null
             val text = event.fullText
             val syncSignalled = text.contains("Catching synchronous chunk load", ignoreCase = true) ||
                 text.contains("synchronous chunk load", ignoreCase = true) ||
@@ -481,6 +688,15 @@ object LogDetectors {
                     blame?.let { append(" Involves $it.") }
                 },
                 evidence = event.frames.take(4).map { it.raw }.ifEmpty { listOf(msg.trim()) },
+            )
+        },
+
+        Signature(LogRules.FOLIA_REGION_ENTITY_DENSITY) { event, _ ->
+            val hit = analyzeRegionalEntityLag(event) ?: return@Signature null
+            DetectorMatch(
+                discriminator = hit.discriminator,
+                detail = hit.detail,
+                evidence = hit.evidence,
             )
         },
     )

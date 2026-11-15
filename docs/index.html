@@ -302,7 +302,7 @@
       </div>
       <nav class="nav-links">
         <a href="https://github.com/SalyyS1/serverdoctor">GitHub Repository</a>
-        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.4.0</a>
+        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.5.0</a>
         <a href="https://salyys1.github.io/foliascan/">FoliaScan</a>
         <a href="https://salyys1.github.io/pluginscope/">PluginScope</a>
         <a href="https://salyys1.github.io/minecraftkit/">MinecraftKit</a>
@@ -314,12 +314,12 @@
         <h2>1. Drop Server Artifacts</h2>
         <div id="dropzone" class="dropzone" tabindex="0">
           <p><strong>Drop files here or click to browse</strong></p>
-          <p class="hint">Accepts <code>latest.log</code>, <code>*.log.gz</code>, <code>crash-*.txt</code>, <code>start.sh</code>, <code>server.properties</code>, <code>spigot.yml</code>, <code>paper-global.yml</code></p>
+          <p class="hint">Accepts <code>latest.log</code>, <code>*.log.gz</code>, <code>crash-*.txt</code>, <code>start.sh</code>, <code>server.properties</code>, <code>spigot.yml</code>, <code>paper-global.yml</code>, <code>paper-world-defaults.yml</code>, <code>folia.yml</code></p>
           <input id="fileInput" type="file" multiple hidden>
         </div>
         <div class="btn-row">
+          <button type="button" data-preset="folia">Sample: Folia Region Density + Moonrise Stall + Tuning</button>
           <button type="button" data-preset="spark">Sample: Spark Lag + Netty + Paper 26.3</button>
-          <button type="button" data-preset="folia">Sample: Folia Stall + ZGC Stall</button>
           <button type="button" data-preset="paper">Sample: Paper Hang + Full GC + Config</button>
           <button type="button" data-preset="clean">Sample: Healthy Velocity Backend</button>
         </div>
@@ -350,7 +350,7 @@
     <div class="findings" id="findingsList"></div>
 
     <footer>
-      <div>ServerDoctor v0.4.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
+      <div>ServerDoctor v0.5.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
       <div>Companion tools: <a href="https://github.com/SalyyS1/foliascan">foliascan</a> | <a href="https://github.com/SalyyS1/pluginscope">pluginscope</a> | <a href="https://github.com/SalyyS1/minecraftkit">minecraftkit</a></div>
     </footer>
   </div>
@@ -389,24 +389,41 @@
           {
             name: "logs/latest.log",
             text: [
-              "[12:00:02] [ServerMain/INFO]: Starting minecraft server version 1.21.4",
-              "[12:00:02] [ServerMain/INFO]: This server is running Folia version 1.21.4-38-main (MC: 1.21.4)",
+              "[12:00:02] [ServerMain/INFO]: Starting minecraft server version 26.3",
+              "[12:00:02] [ServerMain/INFO]: This server is running Folia version 26.3-42-main (MC: 26.3)",
               "[12:00:08] [Region Scheduler Thread #0/INFO]: Done (6.112s)! For help, type \"help\"",
+              "[12:03:14] [Region Scheduler Thread #2/WARN]: Region around chunk (32, -16) in world 'world' overloaded: 11.4 TPS (87.7 mspt), 2410 entities (minecraft:villager: 980, minecraft:hopper_minecart: 480, minecraft:zombie: 310), 49 chunks",
+              "[12:03:45] [Tuinity Chunk System Worker #2/WARN]: Catching synchronous chunk load at world (-18, 44)",
+              "java.lang.Throwable: Synchronous chunk load on chunk worker",
+              "\tat io.papermc.paper.chunk.system.scheduling.SyncLoadFinder.logSyncLoad(SyncLoadFinder.java:88)",
+              "\tat com.example.terraingen.CavePopulator.populate(CavePopulator.java:63)",
               "[12:04:11] [Region Scheduler Thread #3/ERROR]: Thread Region Scheduler Thread #3 failed main thread check: Cannot move entity off-main",
               "java.lang.IllegalStateException: Cannot access entity off-owning region",
               "\tat ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(TickThread.java:58)",
               "\tat net.minecraft.server.level.ServerLevel.addFreshEntity(ServerLevel.java:1204)",
               "\tat com.example.skywars.ArenaManager.spawnKitNpc(ArenaManager.java:91)",
-              "[12:04:19] [Region Scheduler Thread #1/ERROR]: Could not pass event PlayerMoveEvent to SkyWars v2.1.0",
-              "java.lang.UnsupportedOperationException: Must use teleportAsync while in region threading",
-              "\tat org.bukkit.craftbukkit.entity.CraftEntity.teleport(CraftEntity.java:214)",
-              "\tat com.example.skywars.BorderGuard.pushBack(BorderGuard.java:44)",
               "[284.120s][info][gc] GC(18) Allocation Stall (Region Scheduler Thread #2) 348.910ms",
               "[12:06:55] [Folia Region Watchdog/ERROR]: --- DO NOT REPORT THIS TO FOLIA - THIS IS NOT A BUG OR A CRASH ---",
               "[12:06:55] [Folia Region Watchdog/ERROR]: Tick region (14, -8) has not responded for 15.4 seconds!",
               "[12:06:55] [Folia Region Watchdog/ERROR]: \tat java.base/java.net.SocketInputStream.read(SocketInputStream.java:151)",
               "[12:06:55] [Folia Region Watchdog/ERROR]: \tat com.example.crates.WebhookClient.post(WebhookClient.java:77)"
             ].join("\n")
+          },
+          {
+            name: "server.properties",
+            text: "online-mode=true\nview-distance=10\nsimulation-distance=6\nlevel-name=world\n"
+          },
+          {
+            name: "config/paper-global.yml",
+            text: "version: 30\nthreaded-regions:\n  threads: 16\nchunk-system:\n  worker-threads: 2\n"
+          },
+          {
+            name: "config/paper-world-defaults.yml",
+            text: "version: 31\ncollisions:\n  max-entity-collisions: 0\ntick-rates:\n  sensor:\n    villager:\n      secondarypoisensor: 2\n"
+          },
+          {
+            name: "spigot.yml",
+            text: "world-settings:\n  default:\n    entity-activation-range:\n      monsters: 128\n"
           },
           {
             name: "start.sh",
@@ -450,7 +467,7 @@
           },
           {
             name: "config/paper-global.yml",
-            text: "_version: 29\nversion: 29\nchunk-system:\n  io-threads: -1\n  worker-threads: -1\nproxies:\n  velocity:\n    enabled: true\n    online-mode: true\n    secret: 'prod-shared-hmac-991a8f'\nspark:\n  enabled: true\n"
+            text: "_version: 30\nversion: 30\nchunk-system:\n  io-threads: -1\n  worker-threads: -1\nproxies:\n  velocity:\n    enabled: true\n    online-mode: true\n    secret: 'prod-shared-hmac-991a8f'\nspark:\n  enabled: true\n"
           },
           {
             name: "start.sh",
@@ -476,6 +493,8 @@
         L022: { sev: "critical", title: "Paper chunk system I/O error, oversized chunk, or save queue stall", fix: "Verify disk free space and storage latency, and inspect oversized chunk coordinates for NBT bloat.", prov: "PaperMC/Paper MoonriseRegionFileIO" },
         L023: { sev: "warning", title: "Spark or JFR profiler detected severe tick duration spike or CPU hotspot", fix: "Open the exported spark.lucko.me viewer URL or inspect top flamegraph frames to optimize blocking calls.", prov: "lucko/spark TickMonitor.java & JFR execution sampler" },
         L024: { sev: "critical", title: "Netty networking pipeline packet compression failure or direct memory leak", fix: "Tune network-compression-threshold in server.properties and verify -XX:MaxDirectMemorySize.", prov: "io.netty.handler.codec.EncoderException & OutOfDirectMemoryError" },
+        L025: { sev: "warning", title: "Folia or Paper regional tick lag with concentrated entity-type density", fix: "Target the dominant entity class: raise villager POI sensor/behavior tick-rates, cap collisions.max-entity-collisions, or enable hopper.cooldown-when-full.", prov: "PaperMC/Folia TickRegions & CommandServerHealth, Paper EntityCommand" },
+        L026: { sev: "critical", title: "Moonrise async chunk generation worker stall, re-entrant load, or stage failure", fix: "Remove blocking getChunkAt or CompletableFuture.join calls from custom ChunkGenerator/BlockPopulator code and keep chunk-system.worker-threads at -1.", prov: "PaperMC/Paper ChunkTaskScheduler & NewChunkHolder" },
         F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
         F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
         F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
@@ -490,6 +509,9 @@
         C020: { sev: "warning", title: "network-compression-threshold in server.properties causes CPU exhaustion or bandwidth saturation", fix: "Set network-compression-threshold=256 (avoid <= 64 or -1 on public internet servers).", prov: "server.properties network-compression-threshold" },
         C021: { sev: "warning", title: "Spigot netty-threads setting is pinned to 1 or below, serialising network I/O", fix: "Set settings.netty-threads to 4 or higher (or remove override for automatic core scaling).", prov: "SpigotConfig.java settings.netty-threads" },
         C022: { sev: "warning", title: "Paper 26.3 item component validation or book profile checks are disabled", fix: "Keep item-validation.resolve-selectors-in-books=false and leave item limits at defaults.", prov: "PaperMC/Paper GlobalConfiguration.java (item-validation)" },
+        C023: { sev: "warning", title: "Folia threaded-regions pool is serialised, over-committed, or starving chunk workers", fix: "Set threaded-regions.threads to -1 or leave 25-35% of cores for Moonrise chunk workers, Netty, and GC.", prov: "PaperMC/Folia GlobalConfiguration.java (ThreadedRegions.threads)" },
+        C024: { sev: "warning", title: "Paper 26.3 world tick-rates force hyper-frequent villager POI scans or zeroed intervals", fix: "Set tick-rates.sensor.villager.secondarypoisensor to 40..80, validatenearbypoi to 60 or -1, and avoid 0 intervals.", prov: "PaperMC/Paper WorldConfiguration.java (TickRates)" },
+        C025: { sev: "warning", title: "Unbounded max-entity-collisions or entity-activation-range exceeding simulation distance", fix: "Set collisions.max-entity-collisions between 2 and 8 and keep entity-activation-range <= simulation-distance * 16.", prov: "PaperMC/Paper WorldConfiguration.java & SpigotConfig.java" },
         X001: { sev: "critical", title: "The server crashed", fix: "Start from the outermost plugin frame in the crash stack trace.", prov: "Minecraft Crash Report header & stacktrace" }
       };
 
@@ -730,6 +752,19 @@
             continue;
           }
 
+          const isChunkWorker = /Chunk System Worker|Chunk Task Worker|Moonrise Chunk Worker|WorldGen-Worker/i.test(line);
+          const slowGenMatch = line.match(/Chunk generation[^\n]*took\s+(\d+(?:\.\d+)?)\s*ms/i);
+          if ((isChunkWorker && (/synchronous chunk load|SyncLoadFinder|Blocking on chunk task/i.test(full))) ||
+              /Chunk (?:generation|task|system)[^\n]*(?:stalled|deadlock|blocked|timed out|has not progressed)/i.test(full) ||
+              (slowGenMatch && parseFloat(slowGenMatch[1]) >= 2000.0)) {
+            const detail = (isChunkWorker && /synchronous chunk load|SyncLoadFinder/i.test(full))
+              ? ("Re-entrant synchronous chunk wait inside Moonrise worker thread" + (blame ? (", involving " + blame) : "") + ".")
+              : (slowGenMatch ? ("Async chunk generation stalled for " + slowGenMatch[1] + " ms.") : "Moonrise async chunk generation worker stalled or deadlocked.");
+            addGrouped("L026", "chunk-gen@" + (blame || "moonrise"), lineNo, detail, frames.length ? frames.slice(0, 4) : [line.trim()]);
+            i = j - 1;
+            continue;
+          }
+
           if (/Catching synchronous chunk load|synchronous chunk load/i.test(full) || frames.some(f => f.includes("SyncLoadFinder"))) {
             addGrouped("L021", "sync-chunk@" + (blame || "server"), lineNo, "Synchronous chunk load blocked a tick thread" + (blame ? (", triggered by " + blame) : "") + ".", frames.slice(0, 4));
             i = j - 1;
@@ -755,6 +790,35 @@
             addGrouped("L024", isOom ? "netty-direct-oom" : "netty-packet-overflow", lineNo, msg + (blame ? (" Involving " + blame + ".") : ""), block.slice(0, 3));
             i = j - 1;
             continue;
+          }
+
+          if (!/DO NOT REPORT THIS TO FOLIA|stopped responding|has not responded/i.test(line) &&
+              /(?:Region around|Lowest region TPS|Tick region|Region tick|High entity density|Entity density|entity cramming|Chunk\s*\(-?\d+,\s*-?\d+\)[^\n]*contains\s+\d+\s+entities)/i.test(line)) {
+            const msptM = line.match(/(\d+(?:\.\d+)?)\s*mspt/i);
+            const tpsM = line.match(/(\d+(?:\.\d+)?)\s*tps\b/i);
+            const entM = line.match(/(?:entities\s*[:=]\s*(\d+)|(\d+)\s+entities)/i);
+            const mspt = msptM ? parseFloat(msptM[1]) : null;
+            const tps = tpsM ? parseFloat(tpsM[1]) : null;
+            const totalEnt = entM ? Number(entM[1] || entM[2]) : 0;
+            const nonEnt = new Set(["tps", "mspt", "chunks", "chunk", "entities", "entity", "players", "world", "region", "tick", "ticks", "top", "overloaded", "duration"]);
+            const counts = [];
+            const kvRe = /(?:minecraft:)?([a-z][a-z0-9_]{1,40})\s*(?::|=|\s+x)\s*(\d+)\b(?!\.\d)/gi;
+            let m;
+            while ((m = kvRe.exec(line)) !== null) {
+              const k = m[1].toLowerCase(), v = Number(m[2]);
+              if (!nonEnt.has(k) && v > 0) counts.push([k, v]);
+            }
+            counts.sort((a, b) => b[1] - a[1]);
+            const sumEnt = totalEnt || counts.reduce((acc, x) => acc + x[1], 0);
+            if ((mspt !== null && mspt > 50.0) || (tps !== null && tps < 18.0) || sumEnt >= 200) {
+              const topStr = counts.slice(0, 3).map(([k, v]) => k + "=" + v + (sumEnt > 0 ? (" (" + Math.floor(v * 100 / sumEnt) + "%)") : "")).join(", ");
+              const dom = counts[0] ? counts[0][0] : "";
+              const hint = dom.includes("villager") ? "villager AI/POI brain scans" : ((dom.includes("minecart") || dom.includes("hopper")) ? "minecart/hopper sweeps" : (dom === "item" ? "dropped item sweeps" : ""));
+              const summary = "Regional tick overload: " + [mspt ? (mspt.toFixed(1) + " mspt") : "", tps ? (tps.toFixed(1) + " TPS") : "", sumEnt ? (sumEnt + " entities") : ""].filter(Boolean).join(", ") +
+                (topStr ? (" [top: " + topStr + "]") : "") + (hint ? (", dominated by " + hint) : "") + ".";
+              addGrouped("L025", "region-density-" + lineNo, lineNo, summary, [line.trim()]);
+              continue;
+            }
           }
         }
 
@@ -783,6 +847,8 @@
         const facts = {};
         let props = null, propsName = "server.properties";
         let paperGlobal = null, paperName = "config/paper-global.yml";
+        let paperWorld = null, paperWorldName = "config/paper-world-defaults.yml";
+        let foliaCfg = null, foliaName = "config/folia.yml";
         let spigot = null;
 
         for (const art of artifacts) {
@@ -793,6 +859,12 @@
           } else if (lower.endsWith("paper-global.yml")) {
             paperGlobal = parseSimpleYaml(art.text);
             paperName = art.name;
+          } else if (lower.endsWith("paper-world-defaults.yml") || lower.endsWith("paper-world.yml")) {
+            paperWorld = parseSimpleYaml(art.text);
+            paperWorldName = art.name;
+          } else if (lower.endsWith("folia.yml")) {
+            foliaCfg = parseSimpleYaml(art.text);
+            foliaName = art.name;
           } else if (lower.endsWith("spigot.yml")) {
             spigot = parseSimpleYaml(art.text);
           } else if (lower.includes("crash-") || art.text.includes("---- Minecraft Crash Report ----")) {
@@ -810,7 +882,7 @@
           }
         }
 
-        if (props || paperGlobal || spigot) {
+        if (props || paperGlobal || paperWorld || foliaCfg || spigot) {
           const online = props && props["online-mode"] ? props["online-mode"].value === "true" : null;
           const velOn = paperGlobal && paperGlobal["proxies.velocity.enabled"] && paperGlobal["proxies.velocity.enabled"].value === "true";
           const velSecret = paperGlobal && paperGlobal["proxies.velocity.secret"] ? paperGlobal["proxies.velocity.secret"].value : "";
@@ -872,6 +944,51 @@
             const nt = Number(spigot["settings.netty-threads"].value);
             if (nt <= 1) {
               findings.push(makeFinding("C021", "spigot.yml:" + spigot["settings.netty-threads"].line, "settings.netty-threads=" + nt + " bottlenecks all connected player network I/O onto a single thread.", []));
+            }
+          }
+          const chunkW = (paperGlobal && paperGlobal["chunk-system.worker-threads"]) ? Number(paperGlobal["chunk-system.worker-threads"].value) : null;
+          for (const [cfg, cname] of [[paperGlobal, paperName], [foliaCfg, foliaName]]) {
+            if (cfg && cfg["threaded-regions.threads"]) {
+              const rt = Number(cfg["threaded-regions.threads"].value);
+              const ln = cfg["threaded-regions.threads"].line;
+              if (rt === 0 || rt === 1 || rt < -1) {
+                findings.push(makeFinding("C023", cname + ":" + ln, "threaded-regions.threads is " + rt + " (default -1), serialising Folia regional concurrency onto a single thread.", []));
+              } else if (rt > 64) {
+                findings.push(makeFinding("C023", cname + ":" + ln, "threaded-regions.threads is " + rt + " (> 64), increasing regionizer lock contention.", []));
+              } else if (rt >= 8 && chunkW !== null && (chunkW === 1 || chunkW === 2)) {
+                findings.push(makeFinding("C023", cname + ":" + ln, "threaded-regions.threads is " + rt + " while chunk-system.worker-threads is pinned to " + chunkW + ", starving Moonrise chunk workers.", []));
+              }
+            }
+          }
+          if (paperWorld) {
+            for (const [k, ent] of Object.entries(paperWorld)) {
+              if (!k.startsWith("tick-rates.")) continue;
+              const sub = k.slice("tick-rates.".length);
+              const v = Number(ent.value);
+              if (Number.isNaN(v)) continue;
+              if (v === 0 || v < -1) {
+                findings.push(makeFinding("C024", paperWorldName + ":" + ent.line, k + " is " + v + " (zero or <-1 interval disables or misconfigures scheduled world updates).", []));
+              } else if ((sub.startsWith("behavior.villager.") || sub.startsWith("sensor.villager.")) && v >= 1 && v <= 5) {
+                findings.push(makeFinding("C024", paperWorldName + ":" + ent.line, k + " is " + v + " tick(s), forcing costly 3D villager POI/sensor scans almost every tick.", []));
+              }
+            }
+            if (paperWorld["collisions.max-entity-collisions"]) {
+              const mc = Number(paperWorld["collisions.max-entity-collisions"].value);
+              if (mc <= 0 || mc > 32) {
+                findings.push(makeFinding("C025", paperWorldName + ":" + paperWorld["collisions.max-entity-collisions"].line, "collisions.max-entity-collisions is " + mc + " (default 8), allowing quadratic entity cramming lag.", []));
+              }
+            }
+          }
+          if (spigot && props && props["simulation-distance"]) {
+            const simBlocks = Number(props["simulation-distance"].value) * 16;
+            if (simBlocks > 0) {
+              const prefix = "world-settings.default.entity-activation-range.";
+              for (const g of ["animals", "monsters", "raiders", "misc", "water", "villagers", "flying-monsters"]) {
+                const ent = spigot[prefix + g];
+                if (ent && Number(ent.value) > simBlocks) {
+                  findings.push(makeFinding("C025", "spigot.yml:" + ent.line, "entity-activation-range." + g + " is " + ent.value + " blocks, exceeding simulation-distance (" + simBlocks + " blocks).", []));
+                }
+              }
             }
           }
         }
@@ -1028,7 +1145,7 @@
         downloadBlob("serverdoctor-report.json", JSON.stringify({
           schema: 1,
           tool: "serverdoctor-web",
-          toolVersion: "0.4.0",
+          toolVersion: "0.5.0",
           facts: lastState.facts,
           findings: lastState.findings
         }, null, 2));
@@ -1043,7 +1160,7 @@
             tool: {
               driver: {
                 name: "ServerDoctor",
-                version: "0.4.0",
+                version: "0.5.0",
                 informationUri: "https://github.com/SalyyS1/serverdoctor",
                 rules: ruleIds.map(id => ({
                   id,

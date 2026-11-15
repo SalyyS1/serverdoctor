@@ -233,6 +233,51 @@ class LogTriageTest {
         assertTrue(encoderFinding.detail.contains("com.example.customprotocol") || encoderFinding.detail.contains("Packet payload"), encoderFinding.detail)
     }
 
+    @Test
+    fun `detects folia regional tick lag and attributes dominant entity density without firing on healthy regions`() {
+        val healthyRegion = """
+            [14:09:00] [Region Scheduler Thread #0/INFO]: Region around chunk (0, 0) in world 'world': 20.0 TPS (8.4 mspt), 62 entities, 25 chunks
+        """.trimIndent()
+        assertTrue(triageText(healthyRegion).findings.isEmpty(), "healthy region telemetry must stay quiet")
+
+        val overloadedRegion = """
+            [14:10:02] [Region Scheduler Thread #2/WARN]: Region around chunk (32, -16) in world 'world' overloaded: 11.4 TPS (87.7 mspt), 2410 entities (minecraft:villager: 980, minecraft:hopper_minecart: 480, minecraft:zombie: 310), 49 chunks
+            [14:12:00] [Region Scheduler Thread #1/WARN]: High entity density in chunk (8, 14) of world 'world_nether': 540 entities (minecraft:chest_minecart x360, minecraft:item x110)
+        """.trimIndent()
+        val triaged = triageText(overloadedRegion)
+        val ids = triaged.findings.map { it.ruleId }.toSet()
+        assertTrue("L025" in ids, "expected regional entity density L025 in $ids")
+        assertFalse("L018" in ids, "live regional MSPT report must not fire watchdog stall L018")
+        val hits = triaged.findings.filter { it.ruleId == "L025" }
+        assertEquals(2, hits.size, "expected 2 distinct regional density findings: $hits")
+        assertTrue(hits.any { it.detail.contains("villager=980 (40%)") && it.detail.contains("villager AI/POI brain scans") }, hits.toString())
+        assertTrue(hits.any { it.detail.contains("chest_minecart=360 (66%)") && it.detail.contains("minecart/hopper") }, hits.toString())
+    }
+
+    @Test
+    fun `detects moonrise async chunk generation worker stalls and re-entrant chunk loads`() {
+        val fastGen = """
+            [15:00:01] [Tuinity Chunk System Worker #1/INFO]: Chunk generation stage FEATURES at (2, 4) took 140ms
+        """.trimIndent()
+        assertTrue(triageText(fastGen).findings.isEmpty(), "sub-2000ms chunk generation stage must not trigger L026")
+
+        val stalledGen = """
+            [15:04:12] [Tuinity Chunk System Worker #2/WARN]: Catching synchronous chunk load at world (-18, 44)
+            java.lang.Throwable: Synchronous chunk load on chunk worker
+            	at io.papermc.paper.chunk.system.scheduling.SyncLoadFinder.logSyncLoad(SyncLoadFinder.java:88)
+            	at com.example.terraingen.CavePopulator.populate(CavePopulator.java:63)
+            [15:05:00] [Paper Chunk Task Worker #0/WARN]: Chunk generation stage FEATURES at (-18, 45) took 4820ms
+        """.trimIndent()
+        val triaged = triageText(stalledGen)
+        val ids = triaged.findings.map { it.ruleId }.toSet()
+        assertTrue("L026" in ids, "expected Moonrise async chunk gen stall L026 in $ids")
+        assertFalse("L021" in ids, "re-entrant worker sync chunk load should report as L026 rather than main-thread L021")
+        val hits = triaged.findings.filter { it.ruleId == "L026" }
+        assertEquals(2, hits.size, "expected 2 L026 findings: $hits")
+        assertTrue(hits.any { it.detail.contains("com.example.terraingen") }, hits.toString())
+        assertTrue(hits.any { it.detail.contains("4820 ms") && it.detail.contains("FEATURES") }, hits.toString())
+    }
+
     private fun triageText(text: String): com.salyvn.serverdoctor.core.ScanReport {
         val file = kotlin.io.path.createTempFile(suffix = ".log")
         file.toFile().writeText(text + "\n")

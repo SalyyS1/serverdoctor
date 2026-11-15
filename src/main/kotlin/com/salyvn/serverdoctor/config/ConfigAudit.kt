@@ -49,6 +49,9 @@ class ConfigAudit {
         checkNetworkCompression(configs, sink)
         checkNettyThreads(configs, sink)
         checkItemComponentValidation(configs, sink)
+        checkFoliaRegionThreads(configs, sink)
+        checkPaperTickRates(configs, sink)
+        checkEntityCollisionsAndActivation(configs, sink)
 
         return ScanReport(
             tool = BuildInfo.NAME,
@@ -429,6 +432,117 @@ class ConfigAudit {
         }
     }
 
+    private fun checkFoliaRegionThreads(configs: ServerConfigSet, sink: FindingSink) {
+        val sources = listOfNotNull(configs.paperGlobal) +
+            configs.extras.filter { it.label.lowercase().endsWith("folia.yml") }
+        val chunkWorkers = configs.paperGlobal?.int("chunk-system.worker-threads")
+
+        for (source in sources) {
+            if (!source.ok) continue
+            val entry = source["threaded-regions.threads"] ?: continue
+            val threads = entry.value.toIntOrNull() ?: continue
+            when {
+                threads == 0 || threads == 1 || threads < -1 -> sink.add(
+                    rule = ConfigRules.FOLIA_REGION_THREADS_TUNING,
+                    location = "${source.label}:${entry.line}",
+                    detail = "threaded-regions.threads is $threads (default is -1). Pinning Folia to $threads " +
+                        "region thread removes multi-region concurrency while retaining regionizer overhead.",
+                )
+
+                threads > 64 -> sink.add(
+                    rule = ConfigRules.FOLIA_REGION_THREADS_TUNING,
+                    location = "${source.label}:${entry.line}",
+                    detail = "threaded-regions.threads is $threads (> 64), causing excessive regionizer lock contention and context switches.",
+                )
+
+                threads >= 8 && chunkWorkers != null && chunkWorkers in 1..2 -> sink.add(
+                    rule = ConfigRules.FOLIA_REGION_THREADS_TUNING,
+                    location = "${source.label}:${entry.line}",
+                    detail = "threaded-regions.threads is $threads while chunk-system.worker-threads is pinned to $chunkWorkers; " +
+                        "active regions will stall waiting on starved Moonrise chunk I/O and generation workers.",
+                )
+            }
+        }
+    }
+
+    private fun checkPaperTickRates(configs: ServerConfigSet, sink: FindingSink) {
+        val worldFiles = listOfNotNull(configs.paperWorldDefaults) +
+            configs.extras.filter { it.label.lowercase().endsWith("paper-world.yml") }
+        for (file in worldFiles) {
+            if (!file.ok) continue
+            for (entry in file.under("tick-rates")) {
+                val ticks = entry.value.toIntOrNull() ?: continue
+                val key = entry.path.removePrefix("tick-rates.")
+                if (ticks == 0 || ticks < -1) {
+                    sink.add(
+                        rule = ConfigRules.PAPER_TICK_RATES_TUNING,
+                        location = "${file.label}:${entry.line}",
+                        detail = "tick-rates.$key is $ticks. Zero or <-1 intervals disable or misconfigure scheduled world updates (use -1 for Paper default).",
+                    )
+                    continue
+                }
+                val isVillagerPoiOrSensor = key.startsWith("behavior.villager.") || key.startsWith("sensor.villager.")
+                if (isVillagerPoiOrSensor && ticks in 1..5) {
+                    sink.add(
+                        rule = ConfigRules.PAPER_TICK_RATES_TUNING,
+                        location = "${file.label}:${entry.line}",
+                        detail = "tick-rates.$key is $ticks tick(s). Polling villager AI/POI sensors every 1..5 ticks causes severe MSPT spikes in villager trading halls (recommended 40..80).",
+                    )
+                }
+            }
+        }
+    }
+
+    private fun checkEntityCollisionsAndActivation(configs: ServerConfigSet, sink: FindingSink) {
+        val worldFiles = listOfNotNull(configs.paperWorldDefaults) +
+            configs.extras.filter { it.label.lowercase().endsWith("paper-world.yml") }
+        for (file in worldFiles) {
+            if (!file.ok) continue
+            val entry = file["collisions.max-entity-collisions"] ?: continue
+            val maxCol = entry.value.toIntOrNull() ?: continue
+            if (maxCol <= 0 || maxCol > 32) {
+                sink.add(
+                    rule = ConfigRules.ENTITY_COLLISION_ACTIVATION_TUNING,
+                    location = "${file.label}:${entry.line}",
+                    detail = "collisions.max-entity-collisions is $maxCol (default 8). Values <= 0 or > 32 allow quadratic entity cramming lag in mob farms and minecart stacks.",
+                )
+            }
+        }
+
+        val spigot = configs.spigot
+        if (spigot != null && spigot.ok) {
+            spigot["world-settings.default.max-entity-collisions"]?.let { entry ->
+                val maxCol = entry.value.toIntOrNull()
+                if (maxCol != null && (maxCol <= 0 || maxCol > 32)) {
+                    sink.add(
+                        rule = ConfigRules.ENTITY_COLLISION_ACTIVATION_TUNING,
+                        location = "${spigot.label}:${entry.line}",
+                        detail = "world-settings.default.max-entity-collisions is $maxCol (default 8). Values <= 0 or > 32 amplify entity push contention.",
+                    )
+                }
+            }
+
+            val simChunks = configs.serverProperties?.int("simulation-distance")
+            if (simChunks != null && simChunks > 0) {
+                val simBlocks = simChunks * 16
+                val rangePrefix = "world-settings.default.entity-activation-range"
+                for (entry in spigot.under(rangePrefix)) {
+                    val key = entry.path.removePrefix("$rangePrefix.")
+                    if (key.contains('.')) continue
+                    if (key !in ACTIVATION_RANGE_GROUPS) continue
+                    val blocks = entry.value.toIntOrNull() ?: continue
+                    if (blocks > simBlocks) {
+                        sink.add(
+                            rule = ConfigRules.ENTITY_COLLISION_ACTIVATION_TUNING,
+                            location = "${spigot.label}:${entry.line}",
+                            detail = "entity-activation-range.$key is $blocks blocks, exceeding simulation-distance=$simChunks ($simBlocks blocks) in server.properties.",
+                        )
+                    }
+                }
+            }
+        }
+    }
+
     private companion object {
         /**
          * The switches in unsupported-settings that ship on. Everything else in the section ships
@@ -446,6 +560,16 @@ class ConfigAudit {
         )
 
         const val WATCHDOG_TIMEOUT_SUSPICIOUS = 300
+
+        val ACTIVATION_RANGE_GROUPS = setOf(
+            "animals",
+            "monsters",
+            "raiders",
+            "misc",
+            "water",
+            "villagers",
+            "flying-monsters",
+        )
     }
 
     /** Convenience for [YamlSource] lookups that need a nullable receiver in the checks above. */
