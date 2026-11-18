@@ -302,7 +302,7 @@
       </div>
       <nav class="nav-links">
         <a href="https://github.com/SalyyS1/serverdoctor">GitHub Repository</a>
-        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.6.0</a>
+        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.7.0</a>
         <a href="https://salyys1.github.io/foliascan/">FoliaScan</a>
         <a href="https://salyys1.github.io/pluginscope/">PluginScope</a>
         <a href="https://salyys1.github.io/minecraftkit/">MinecraftKit</a>
@@ -318,6 +318,7 @@
           <input id="fileInput" type="file" multiple hidden>
         </div>
         <div class="btn-row">
+          <button type="button" data-preset="v070">Sample: 1.21.4+ Remapper + Folia Affinity + Spark Deobf</button>
           <button type="button" data-preset="folia">Sample: Folia Region Density + Moonrise Stall + Tuning</button>
           <button type="button" data-preset="spark">Sample: Spark Lag + Netty + Paper 26.3</button>
           <button type="button" data-preset="paper">Sample: Paper Hang + Full GC + Config</button>
@@ -350,9 +351,10 @@
     <div class="findings" id="findingsList"></div>
 
     <footer>
-      <div>ServerDoctor v0.6.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
+      <div>ServerDoctor v0.7.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
       <div>Companion tools: <a href="https://github.com/SalyyS1/foliascan">foliascan</a> | <a href="https://github.com/SalyyS1/pluginscope">pluginscope</a> | <a href="https://github.com/SalyyS1/minecraftkit">minecraftkit</a></div>
     </footer>
+
   </div>
 
   <script>
@@ -360,6 +362,38 @@
       "use strict";
 
       const PRESETS = {
+        v070: [
+          {
+            name: "logs/latest.log",
+            text: [
+              "[10:00:01] [ServerMain/INFO]: Starting minecraft server version 1.21.4",
+              "[10:00:01] [ServerMain/INFO]: This server is running Folia version 1.21.4-38-main (MC: 1.21.4)",
+              "[10:00:04] [ServerMain/ERROR]: Encountered exception remapping plugins",
+              "java.lang.RuntimeException: Failed to remap plugin plugins/LegacyCrates-1.8.jar",
+              "\tat io.papermc.paper.pluginremap.PluginRemapper.remap(PluginRemapper.java:214)",
+              "[10:01:12] [Server thread/ERROR]: Tried to load invalid item: DataResult.Error['Unknown item model payload for minecraft:item_model']",
+              "\tat net.minecraft.core.component.DataComponentPatch.codec(DataComponentPatch.java:92)",
+              "\tat com.example.rpgitems.KitSerializer.decode(KitSerializer.java:74)",
+              "[10:02:05] [Server thread/WARN]: Chat message validation failure for player Alex: Out-of-order chat packet received",
+              "net.minecraft.network.chat.SignedMessageChain$DecodeException: Missing or invalid signature",
+              "\tat net.minecraft.network.chat.SignedMessageChain.unpack(SignedMessageChain.java:64)",
+              "\tat com.example.chatformat.PacketRewriteHandler.channelRead(PacketRewriteHandler.java:83)",
+              "[10:03:18] [Global Region Scheduler/ERROR]: Thread Global Region Scheduler failed main thread check: Cannot access chunk off-owning region",
+              "java.lang.IllegalStateException: Cannot read block state from GlobalRegionScheduler",
+              "\tat ca.spottedleaf.moonrise.common.util.TickThread.ensureTickThread(TickThread.java:62)",
+              "\tat net.minecraft.server.level.ServerLevel.getBlockState(ServerLevel.java:418)",
+              "\tat com.example.weatherboss.AltarSpawner.checkAltar(AltarSpawner.java:52)",
+              "\tat io.papermc.paper.threadedregions.scheduler.FoliaGlobalRegionScheduler$GlobalScheduledTask.run(FoliaGlobalRegionScheduler.java:178)",
+              "[10:04:02] [Folia Async Scheduler Thread #0/WARN]: Task #19 for DungeonBosses v2.0.1 generated an exception",
+              "java.lang.NullPointerException: Cannot invoke \"String.length()\" because \"lootTable\" is null",
+              "\tat com.example.dungeons.LootFetcher.refreshCache(LootFetcher.java:41)",
+              "\tat io.papermc.paper.threadedregions.scheduler.FoliaAsyncScheduler$AsyncScheduledTask.run(FoliaAsyncScheduler.java:211)",
+              "[10:05:00] [Server thread/INFO]: [spark] Folia Async Scheduler Thread #1 100.00%",
+              "[10:05:00] [Server thread/INFO]: [spark]   |- com.example.auth.LoginPool$$Lambda/0x0000000801ab00.run() 78.00%",
+              "[10:05:00] [Server thread/INFO]: [spark]   |  \\- com.zaxxer.hikari.pool.HikariPool.getConnection() 76.50%"
+            ].join("\n")
+          }
+        ],
         spark: [
           {
             name: "logs/latest.log",
@@ -501,6 +535,12 @@
         L026: { sev: "critical", title: "Moonrise async chunk generation worker stall, re-entrant load, or stage failure", fix: "Remove blocking getChunkAt or CompletableFuture.join calls from custom ChunkGenerator/BlockPopulator code and keep chunk-system.worker-threads at -1.", prov: "PaperMC/Paper ChunkTaskScheduler & NewChunkHolder" },
         L027: { sev: "critical", title: "Spark profiler call-tree or flamegraph shows a dominant tick-thread hotspot", fix: "Move JDBC, HTTP, Redis, and disk I/O onto AsyncScheduler or Folia async pools, eliminate blocking CompletableFuture.join, or tune entity/hopper intervals.", prov: "lucko/spark CallTree / StackTraceNode & collapsed flamegraph profiles" },
         L028: { sev: "critical", title: "Folia region thread stall root-cause classified: cross-region wait, lock contention, or blocking I/O", fix: "Replace CompletableFuture.join on TickRegionThreads with EntityScheduler/RegionScheduler callbacks, eliminate cross-region shared locks, and move socket/JDBC I/O to AsyncScheduler.", prov: "PaperMC/Folia FoliaWatchdogThread.java & ThreadedRegionizer.java" },
+        L029: { sev: "critical", title: "Paper 1.21.4+ plugin remapper failure or legacy CraftBukkit v1_* linkage error", fix: "Install a Paper 1.21.4+ / 26.3+ Mojang-mapped build (paperweight-mappings-namespace: mojang) or delete plugins/.paper-remapped if interrupted.", prov: "PaperMC/Paper PluginRemapper & PaperPluginClassLoader" },
+        L030: { sev: "critical", title: "Minecraft 1.21.4+ DataComponent codec parse failure or datapack registry error", fix: "Migrate legacy raw NBT tags to structured 1.21.4+ item components and validate custom datapack JSON files before startup.", prov: "PaperMC/Paper DataComponentPatch, RegistryDataLoader & DataResult.Error" },
+        L031: { sev: "warning", title: "Minecraft 1.21.4+ signed chat chain rejection, configuration-phase disconnect, or packet rate kick", fix: "Verify Velocity forwarding and set enforce-secure-profile=false when chat plugins rewrite messages; align proxy/backend registries.", prov: "PaperMC/Paper SignedMessageChain, ServerConfigurationPacketListenerImpl & PacketLimiter" },
+        L032: { sev: "warning", title: "Spark profiler shows async scheduler worker pool saturation, connection starvation, or lock convoy", fix: "Size HikariCP maximumPoolSize within database limits with explicit connection/socket timeouts and remove shared async locks.", prov: "lucko/spark async profiles, FoliaAsyncScheduler & HikariPool" },
+        L033: { sev: "critical", title: "Folia scheduler trace shows cross-context thread affinity violation (Global, Region, Entity, or Async)", fix: "Dispatch entity work via entity.getScheduler().run(plugin, task, retired), block/chunk work via RegionScheduler.execute(plugin, location, task), and reserve GlobalRegionScheduler for global rules.", prov: "PaperMC/Folia FoliaGlobalRegionScheduler, FoliaRegionScheduler, EntityScheduler & FoliaAsyncScheduler" },
+        L034: { sev: "warning", title: "Folia scheduled task threw an uncaught exception or RegionizedTaskQueue reported backlog", fix: "Fix the named plugin callback in the Folia scheduler trace, supply a retired callback on EntityScheduler, and batch cross-region tasks.", prov: "PaperMC/Folia EntityScheduler, RegionizedTaskQueue & ThreadedRegionizer" },
         F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
         F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
         F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
@@ -532,9 +572,10 @@
 
       function firstForeignClass(lines) {
         for (const line of lines) {
-          const m = line.match(/^\s*at\s+(?:[\w.$@-]*\/)*([\w$.]+)\.([\w$<>]+)\(/);
+          const cleaned = line.replace(/\/0x[0-9a-fA-F]+/g, "");
+          const m = cleaned.match(/^\s*at\s+(?:[\w.$@-]*\/)*([\w$.]+)\.([\w$<>]+)\(/);
           if (!m) continue;
-          const cls = m[1];
+          const cls = m[1].split("$$Lambda")[0];
           if (!SERVER_PKGS.some(p => cls.startsWith(p))) return cls;
         }
         return null;
@@ -677,15 +718,18 @@
         function blameFromChain(chain) {
           let fallback = null;
           for (let k = chain.length - 1; k >= 0; k--) {
-            const m = chain[k].match(/(?:[\w.$@-]*\/)*([a-zA-Z_][\w$]*(?:\.[a-zA-Z_][\w$]*){2,})\.[A-Za-z0-9_$<>]+/);
+            const cleaned = chain[k].replace(/\/0x[0-9a-fA-F]+/g, "");
+            const m = cleaned.match(/(?:[\w.$@-]*\/)*([a-zA-Z_][\w$]*(?:\.[a-zA-Z_][\w$]*){2,})\.[A-Za-z0-9_$<>]+/);
             if (!m) continue;
-            const cls = m[1];
+            const cls = m[1].split("$$Lambda")[0];
             if (SERVER_PKGS.some(p => cls.startsWith(p))) continue;
             if (!DRIVER_PKGS.some(p => cls.startsWith(p))) return cls;
             if (!fallback) fallback = cls;
           }
           return fallback;
         }
+
+        let currentSparkThread = "Server thread";
 
         for (let i = 0; i < lines.length; i++) {
           const line = lines[i];
@@ -708,10 +752,16 @@
           }
 
           const sparkPayload = line.replace(/^\[[^\]]+\]\s*\[[^\]]+\]:\s*(?:\[spark\]\s*)?/i, "");
-          const treeMatch = sparkPayload.match(/^([ |`\\+\u2500-\u257f-]*)\s*([A-Za-z0-9_$.<>\/]+\([^\r\n)]*\)|[A-Za-z0-9_$.<>\/]+\.[A-Za-z0-9_$<>]+)\s+(\d+(?:\.\d+)?)%(?:\s*\((\d+(?:\.\d+)?)ms\))?/);
+          const threadHdr = sparkPayload.match(/^(Server thread|Primary thread|Region Scheduler Thread[^(\n%]*|TickRegionThread[^(\n%]*|Folia Async Scheduler[^(\n%]*|Craft Scheduler Thread[^(\n%]*|Paper Async[^(\n%]*)\s+\d+(?:\.\d+)?%/i);
+          if (threadHdr && !threadHdr[1].includes(".")) {
+            currentSparkThread = threadHdr[1].trim();
+            continue;
+          }
+          const treeMatch = sparkPayload.match(/^([ |`\\+\u2500-\u257f-]*)\s*([A-Za-z0-9_$.<>\/-]+\([^\r\n)]*\)|[A-Za-z0-9_$.<>\/-]+\.[A-Za-z0-9_$<>]+)\s+(\d+(?:\.\d+)?)%(?:\s*\((\d+(?:\.\d+)?)ms\))?/);
           if (treeMatch && (line.includes("[spark]") || /[|`\\]|(?:\u251c|\u2514)/.test(treeMatch[1]))) {
             if (!sparkFirstLine) sparkFirstLine = lineNo;
             sparkTreeNodes.push({
+              thread: currentSparkThread,
               depth: treeMatch[1].length,
               frame: treeMatch[2].trim(),
               pct: parseFloat(treeMatch[3]),
@@ -750,6 +800,60 @@
             if (activeWatchdogKey === "L018::folia-stall") foliaWatchdogFrames.push(atPart);
             const entry = grouped.get(activeWatchdogKey);
             if (entry && entry.evidence.length < 6 && idxAt >= 0) entry.evidence.push(atPart);
+            continue;
+          }
+
+          if (full.includes("PluginRemapper") || /Failed to remap plugin|Encountered exception remapping plugins/i.test(line) ||
+              (/NoSuchMethodError|NoClassDefFoundError|ClassNotFoundException|IncompatibleClassChangeError|LinkageError/.test(full) && /(?:org[./]bukkit[./]craftbukkit[./]v1_\d+_R\d+|net[./]minecraft[./]server[./]v1_\d+_R\d+)/.test(full))) {
+            const isRemap = full.includes("PluginRemapper") || /Failed to remap plugin|Encountered exception remapping plugins/i.test(line);
+            const msg = isRemap
+              ? ("Paper PluginRemapper failed while rewriting plugin jar: " + line.trim())
+              : ("Legacy CraftBukkit/NMS versioned v1_* package referenced on a Mojang-mapped Paper runtime" + (blame ? (" by " + blame) : "") + ".");
+            addGrouped("L029", "remap-linkage@" + (blame || lineNo), lineNo, msg, block.slice(0, 3));
+            i = j - 1;
+            continue;
+          }
+
+          if (/DataComponentPatch|DataComponentMap|DataComponentType|RegistryDataLoader|Failed to load registries due to above errors|Tried to load invalid item|DataResult\.Error/.test(full)) {
+            const isReg = /RegistryDataLoader|Failed to load registries/i.test(full);
+            const msg = (isReg ? "Minecraft 1.21.4+ datapack registry validation failed" : "Minecraft 1.21.4+ DataComponent codec failed to decode payload") +
+              (blame ? (" (involving " + blame + ")") : "") + ": " + line.trim().slice(0, 120) + ".";
+            addGrouped("L030", (isReg ? "registry@" : "component@") + (blame || lineNo), lineNo, msg, block.slice(0, 3));
+            i = j - 1;
+            continue;
+          }
+
+          if (full.includes("SignedMessageChain") || /Chat message validation failure|Out-of-order chat packet|missing or invalid signature/i.test(line) ||
+              (full.includes("ServerConfigurationPacketListenerImpl") && /WARN|ERROR|Failed to handle|Missing registry|KnownPacks|disconnect/i.test(full)) ||
+              /exceeding packet rate limit|kicked for exceeding packet rate/i.test(line)) {
+            const msg = full.includes("SignedMessageChain") || /Chat message validation|Out-of-order chat/i.test(line)
+              ? ("Signed chat chain validation rejected a player message" + (blame ? (", involving " + blame) : "") + ".")
+              : (full.includes("ServerConfigurationPacketListenerImpl")
+                ? "Client disconnected during Minecraft 1.21.4+ CONFIGURATION protocol negotiation."
+                : "Paper PacketLimiter disconnected a client for exceeding configured packet rate limits.");
+            addGrouped("L031", "proto-1214@" + (blame || lineNo), lineNo, msg, block.slice(0, 3));
+            i = j - 1;
+            continue;
+          }
+
+          if (/FoliaGlobalRegionScheduler|GlobalRegionScheduler|FoliaRegionScheduler|EntityScheduler|FoliaAsyncScheduler/.test(full) &&
+              (/TickThread\.ensureTickThread|failed main thread check|failed region thread check|off-owning region|not owned by current region/i.test(full))) {
+            const dom = /GlobalRegionScheduler/.test(full) ? "GlobalRegionScheduler"
+              : (/FoliaAsyncScheduler/.test(full) ? "FoliaAsyncScheduler"
+                : (/EntityScheduler/.test(full) ? "EntityScheduler" : "RegionScheduler"));
+            const target = /CraftEntity|CraftPlayer|ServerPlayer|entity/i.test(full)
+              ? "entity state; dispatch via entity.getScheduler().run(plugin, task, retired)"
+              : "chunk/block state; dispatch via RegionScheduler.execute(plugin, location, ...)";
+            addGrouped("L033", dom + "@" + (blame || "folia"), lineNo, dom + " task violated Folia thread affinity touching " + target + (blame ? (" (via " + blame + ")") : "") + ".", frames.slice(0, 4));
+            i = j - 1;
+            continue;
+          }
+
+          if (!/AsyncCatcher|TickThread\.ensureTickThread|Must use teleportAsync/.test(full) &&
+              ((/Folia|Global Region Scheduler|Region Scheduler Thread/i.test(line) && /Task\s+\S*\s*for\s+.+generated an exception|Unhandled exception/i.test(full)) ||
+               /ThreadedRegionizer[^\n]*(?:merge|split)[^\n]*\d+\s*(?:chunks|sections)|RegionizedTaskQueue[^\n]*(?:backlog|overflow|saturated)/i.test(full))) {
+            addGrouped("L034", "folia-sched-fault@" + (blame || lineNo), lineNo, "Folia scheduled task fault or ThreadedRegionizer merge pressure: " + line.trim().slice(0, 130) + (blame ? (" (" + blame + ")") : "") + ".", block.slice(0, 3));
+            i = j - 1;
             continue;
           }
 
@@ -898,12 +1002,25 @@
         if (sparkTreeNodes.length > 0) {
           const stack = [];
           const hotByCat = new Map();
+          const asyncByCat = new Map();
           for (const node of sparkTreeNodes) {
             while (stack.length && stack[stack.length - 1].depth >= node.depth) stack.pop();
             stack.push(node);
             if (node.pct < 12.0) continue;
             const chain = stack.map(s => s.frame);
             const blame = blameFromChain(chain);
+            const isAsyncPool = /Folia Async Scheduler|Craft Scheduler Thread|Paper Async/i.test(node.thread || "");
+            if (isAsyncPool) {
+              if (/ThreadPoolExecutor\.getTask|SynchronousQueue\.poll|ForkJoinPool\.awaitWork/i.test(chain.join(" "))) continue;
+              const cat = classifySparkStack(chain);
+              if (cat && node.pct >= 35.0) {
+                const curA = asyncByCat.get(cat);
+                if (!curA || node.pct > curA.pct) {
+                  asyncByCat.set(cat, { cat, thread: node.thread, pct: node.pct, blame, lineNo: node.lineNo, raw: node.raw });
+                }
+              }
+              continue;
+            }
             const cat = classifySparkStack(chain) || (blame && node.pct >= 20.0 ? "PLUGIN_CPU_HOTSPOT" : null);
             if (!cat) continue;
             const cur = hotByCat.get(cat);
@@ -917,6 +1034,11 @@
               (h.ms !== null ? (" (" + h.ms.toFixed(0) + " ms)") : "") +
               (h.blame ? (", attributed to " + h.blame) : "") + ".";
             addGrouped("L027", h.cat + "@" + (h.blame || "server"), h.lineNo || sparkFirstLine || 1, msg, [h.raw], sev);
+          }
+          for (const a of asyncByCat.values()) {
+            const msg = "Async worker pool saturation on " + a.thread + ": " + a.pct.toFixed(1) + "% in [" + a.cat + "]" +
+              (a.blame ? (", attributed to " + a.blame) : "") + ".";
+            addGrouped("L032", "async-" + a.cat + "@" + (a.blame || "async"), a.lineNo || 1, msg, [a.raw]);
           }
         }
 
@@ -1358,7 +1480,7 @@
         downloadBlob("serverdoctor-report.json", JSON.stringify({
           schema: 1,
           tool: "serverdoctor-web",
-          toolVersion: "0.6.0",
+          toolVersion: "0.7.0",
           facts: lastState.facts,
           findings: lastState.findings
         }, null, 2));
@@ -1373,7 +1495,7 @@
             tool: {
               driver: {
                 name: "ServerDoctor",
-                version: "0.6.0",
+                version: "0.7.0",
                 informationUri: "https://github.com/SalyyS1/serverdoctor",
                 rules: ruleIds.map(id => ({
                   id,

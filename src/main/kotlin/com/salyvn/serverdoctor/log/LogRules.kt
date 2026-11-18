@@ -400,6 +400,109 @@ object LogRules {
             "lock-free message passing or ConcurrentHashMap, and move all JDBC, HTTP, and disk I/O to AsyncScheduler.",
     )
 
+    val PAPER_PLUGIN_REMAPPER_OR_LINKAGE = Rule(
+        id = "L029",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Paper 1.21.4+ plugin remapper failure or legacy CraftBukkit v1_* linkage error",
+        rationale = "Paper 1.20.5 through 26.3+ ships Mojang-mapped server internals without legacy " +
+            "org.bukkit.craftbukkit.v1_* package relocation and rewrites Spigot-compiled plugin jars " +
+            "through io.papermc.paper.pluginremap.PluginRemapper on first boot. When PluginRemapper " +
+            "fails on malformed bytecode or a plugin accesses versioned v1_* or obfuscated NMS symbols " +
+            "through reflection or an unremapped classloader, startup or runtime fails with LinkageError, " +
+            "NoSuchMethodError, or NoClassDefFoundError.",
+        provenance = "PaperMC/Paper io.papermc.paper.pluginremap.PluginRemapper and PaperPluginClassLoader " +
+            "(Mojang runtime mappings without CraftBukkit v1_* relocation)",
+        fix = "Install a Paper 1.21.4+ or 26.3+ Mojang-mapped build of the named plugin " +
+            "(paperweight-mappings-namespace: mojang), or delete plugins/.paper-remapped if an " +
+            "interrupted first-boot remap left a corrupt cached jar.",
+    )
+
+    val DATA_COMPONENT_CODEC_OR_REGISTRY_ERROR = Rule(
+        id = "L030",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Minecraft 1.21.4+ DataComponent codec parse failure or datapack registry error",
+        rationale = "Minecraft 1.20.5 and 1.21.4+ replaced unstructured item and block NBT compounds " +
+            "with strict Mojang DataFixerUpper Codecs (minecraft:item_model, minecraft:equippable, " +
+            "minecraft:consumable, minecraft:custom_model_data, DataComponentPatch) and validated " +
+            "RegistryDataLoader datapack registries at bootstrap. Invalid component payloads in saved " +
+            "inventories, chunks, plugin packets, or custom datapacks fail codec decoding and drop " +
+            "items, disconnect clients, or abort world registry startup.",
+        provenance = "PaperMC/Paper net.minecraft.core.component.DataComponentPatch, " +
+            "net.minecraft.resources.RegistryDataLoader, and Mojang DataFixerUpper DataResult.Error",
+        fix = "Inspect the named component key or registry resource location in the codec error, " +
+            "migrate legacy raw NBT tags to structured 1.21.4+ item components, and validate custom " +
+            "datapack JSON files before startup.",
+    )
+
+    val CHAT_SIGNATURE_OR_CONFIG_PHASE_REJECT = Rule(
+        id = "L031",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Minecraft 1.21.4+ signed chat chain rejection, configuration-phase disconnect, or packet rate kick",
+        rationale = "Minecraft 1.21.4+ verifies sequential SignedMessageChain links for player chat and " +
+            "synchronizes KnownPacks registry entries during the CONFIGURATION protocol state prior to " +
+            "PLAY. Leaving enforce-secure-profile=true behind a proxy, mutating signed chat packets in a " +
+            "plugin without system-chat conversion, mismatched proxy/backend datapack registries, or " +
+            "exceeding Paper's PacketLimiter threshold disconnects players.",
+        provenance = "PaperMC/Paper net.minecraft.network.chat.SignedMessageChain, " +
+            "ServerConfigurationPacketListenerImpl, and ServerCommonPacketListenerImpl (PacketLimiter)",
+        fix = "Behind Velocity or BungeeCord, ensure modern forwarding is active and set " +
+            "enforce-secure-profile=false when chat plugins rewrite messages; keep datapack registries " +
+            "identical across proxy backends; or review packet-limiter settings in paper-global.yml.",
+    )
+
+    val SPARK_ASYNC_POOL_SATURATION = Rule(
+        id = "L032",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Spark profiler shows async scheduler worker pool saturation, connection starvation, or lock convoy",
+        rationale = "Offloading database and HTTP calls onto Paper or Folia async pools protects tick " +
+            "threads only while async workers remain unblocked. When Spark sampler profiles show async " +
+            "scheduler or ForkJoinPool workers spending 35 percent or more of active samples blocked on " +
+            "HikariCP connection starvation, un-timed network sockets, contended locks, or runaway CPU " +
+            "loops, login authentication, economy callbacks, and async chunk continuations stall.",
+        provenance = "lucko/spark async thread sampler profiles, FoliaAsyncScheduler, CraftAsyncScheduler, " +
+            "and com.zaxxer.hikari.pool.HikariPool",
+        fix = "Size HikariCP maximumPoolSize within database limits and configure explicit connection " +
+            "and socket timeouts, remove shared monitor locks across async workers, and cap runaway " +
+            "background polling loops.",
+    )
+
+    val FOLIA_CROSS_REGION_AFFINITY_MISMATCH = Rule(
+        id = "L033",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Folia scheduler trace shows cross-context thread affinity violation (Global, Region, Entity, or Async)",
+        rationale = "Folia separates execution into four incompatible affinity domains: " +
+            "GlobalRegionScheduler owns weather, world time, and console state but zero chunks or " +
+            "entities; RegionScheduler pins a task to fixed chunk coordinates that do not follow moving " +
+            "players or entities; EntityScheduler tracks one entity across region merges and splits; " +
+            "and FoliaAsyncScheduler owns no world state at all. Calling chunk or entity mutations from " +
+            "the wrong scheduler context throws immediately or corrupts regionized world data.",
+        provenance = "PaperMC/Folia FoliaGlobalRegionScheduler.java, FoliaRegionScheduler.java, " +
+            "EntityScheduler.java, and FoliaAsyncScheduler.java",
+        fix = "Match the scheduler to the state owner: dispatch entity/player work via " +
+            "entity.getScheduler().run(plugin, task, retired), fixed-coordinate block/chunk work via " +
+            "RegionScheduler.execute(plugin, location, task), and reserve GlobalRegionScheduler strictly " +
+            "for global server state.",
+    )
+
+    val FOLIA_SCHEDULER_TASK_EXCEPTION_OR_BACKLOG = Rule(
+        id = "L034",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Folia scheduled task threw an uncaught exception or RegionizedTaskQueue reported backlog",
+        rationale = "Uncaught exceptions thrown inside Folia EntityScheduler, RegionScheduler, " +
+            "GlobalRegionScheduler, or FoliaAsyncScheduler callbacks abort the scheduled task without " +
+            "emitting Bukkit's event-blame header, while excessive cross-region task bursts or wide " +
+            "multi-chunk scans trigger RegionizedTaskQueue backlogs and ThreadedRegionizer merge pressure.",
+        provenance = "PaperMC/Folia EntityScheduler.java, RegionizedTaskQueue.java, and ThreadedRegionizer.java",
+        fix = "Fix the named plugin callback in the Folia scheduler trace, supply a retired callback " +
+            "when scheduling delayed EntityScheduler tasks, and batch cross-region task dispatches.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -429,5 +532,11 @@ object LogRules {
         ASYNC_CHUNK_GENERATION_STALL,
         SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY,
         FOLIA_THREAD_STALL_TRIAGE,
+        PAPER_PLUGIN_REMAPPER_OR_LINKAGE,
+        DATA_COMPONENT_CODEC_OR_REGISTRY_ERROR,
+        CHAT_SIGNATURE_OR_CONFIG_PHASE_REJECT,
+        SPARK_ASYNC_POOL_SATURATION,
+        FOLIA_CROSS_REGION_AFFINITY_MISMATCH,
+        FOLIA_SCHEDULER_TASK_EXCEPTION_OR_BACKLOG,
     )
 }

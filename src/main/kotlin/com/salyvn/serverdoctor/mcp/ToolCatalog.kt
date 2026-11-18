@@ -15,6 +15,7 @@ import com.salyvn.serverdoctor.flags.StartScriptReader
 import com.salyvn.serverdoctor.input.LogSource
 import com.salyvn.serverdoctor.log.LogTriage
 import com.salyvn.serverdoctor.log.SparkFlamegraphAnalyzer
+import com.salyvn.serverdoctor.log.SparkMappingDictionary
 import com.salyvn.serverdoctor.perms.PermsAudit
 import com.salyvn.serverdoctor.plugins.HangarClient
 import com.salyvn.serverdoctor.plugins.ModrinthClient
@@ -76,6 +77,7 @@ object ToolCatalog {
             properties = mapOf(
                 "path" to ("string" to "Absolute path to the log file"),
                 "plugins_dir" to ("string" to "Absolute path to the plugins directory, optional"),
+                "mappings_path" to ("string" to "Optional absolute path to ProGuard (.txt), Tiny v2 (.tiny), or TSRG (.tsrg) mappings"),
             ),
         )
 
@@ -86,7 +88,14 @@ object ToolCatalog {
             val index = argument(arguments, "plugins_dir")
                 ?.let { PluginIndex.read(Path.of(it)) }
                 ?: PluginIndex.EMPTY
-            return render(listOf(LogTriage(index).analyse(LogSource.of(file))))
+            val mappings = argument(arguments, "mappings_path")
+                ?.let { mp ->
+                    val mf = Path.of(mp)
+                    if (!Files.isRegularFile(mf)) return missing("Mappings", mp)
+                    SparkMappingDictionary.read(mf)
+                }
+                ?: SparkMappingDictionary.EMPTY
+            return render(listOf(LogTriage(index, mappings).analyse(LogSource.of(file))))
         }
     }
 
@@ -94,17 +103,18 @@ object ToolCatalog {
         override val name = "analyze_spark_profile"
         override val title = "Categorize Spark profiler flamegraph or call-tree hotspots"
         override val description =
-            "Categorize tick-thread CPU and blocking hotspots from a Spark profiler text call-tree, " +
+            "Categorize tick-thread and async-pool hotspots from a Spark profiler text call-tree, " +
                 "collapsed flamegraph stack file (.folded/.txt), Spark JSON sampler export, or inline " +
-                "profile text. Classifies synchronous JDBC/socket I/O, disk I/O, lock or CompletableFuture " +
-                "waits, entity AI/POI scans, hopper sweeps, and chunk generation while attributing " +
-                "hotspots to the calling plugin."
+                "profile text, with optional Mojang ProGuard (.txt), Tiny v2 (.tiny), or TSRG (.tsrg) " +
+                "stack deobfuscation and JVM lambda demangling."
         override val inputSchema = McpServer.objectSchema(
             required = emptyList(),
             properties = mapOf(
                 "path" to ("string" to "Absolute path to a Spark profile, collapsed flamegraph, JSON tree, or log file"),
                 "content" to ("string" to "Inline Spark call-tree, collapsed flamegraph, or JSON profile text"),
                 "plugins_dir" to ("string" to "Absolute path to the plugins directory, optional"),
+                "mappings_path" to ("string" to "Optional absolute path to ProGuard (.txt), Tiny v2 (.tiny), or TSRG (.tsrg) mappings"),
+                "mappings_content" to ("string" to "Optional inline ProGuard, Tiny v2, or TSRG mappings text"),
             ),
         )
 
@@ -112,16 +122,27 @@ object ToolCatalog {
             val index = argument(arguments, "plugins_dir")
                 ?.let { PluginIndex.read(Path.of(it)) }
                 ?: PluginIndex.EMPTY
+            val mappings = when {
+                argument(arguments, "mappings_content") != null ->
+                    SparkMappingDictionary.parse(argument(arguments, "mappings_content")!!)
+                argument(arguments, "mappings_path") != null -> {
+                    val mp = argument(arguments, "mappings_path")!!
+                    val mf = Path.of(mp)
+                    if (!Files.isRegularFile(mf)) return missing("Mappings", mp)
+                    SparkMappingDictionary.read(mf)
+                }
+                else -> SparkMappingDictionary.EMPTY
+            }
 
             argument(arguments, "content")?.let { inlineText ->
-                return render(listOf(SparkFlamegraphAnalyzer.analyseText("inline-spark-profile", inlineText, index)))
+                return render(listOf(SparkFlamegraphAnalyzer.analyseText("inline-spark-profile", inlineText, index, mappings)))
             }
 
             val path = argument(arguments, "path")
                 ?: return ToolResult("Give either path or content", isError = true)
             val file = Path.of(path)
             if (!Files.isRegularFile(file)) return missing("Spark profile", path)
-            return render(listOf(SparkFlamegraphAnalyzer.analyseSource(LogSource.of(file), index)))
+            return render(listOf(SparkFlamegraphAnalyzer.analyseSource(LogSource.of(file), index, mappings)))
         }
     }
 

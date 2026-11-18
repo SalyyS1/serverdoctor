@@ -58,16 +58,18 @@ data class StackFrame(val raw: String, val className: String, val method: String
     companion object {
         /**
          * `at com.example.Foo.bar(Foo.java:12)`, and the same line with the module or class-loader
-         * prefix a modern JVM writes: `java.base/java.util.Arrays.copyOf(...)`, `app//com.example.Foo`.
-         * The prefix is skipped rather than kept, so a JDK frame is still recognised as one.
+         * prefix a modern JVM writes: `java.base/java.util.Arrays.copyOf(...)`, `app//com.example.Foo`,
+         * plus JDK 15+/21+ hidden-class lambda addresses (`com.example.Foo$$Lambda/0x000000801.run`).
          */
+        private val HIDDEN_CLASS_HEX = Regex("""/0x[0-9a-fA-F]+(?=\.)""")
         private val FRAME = Regex("""^\s*at\s+(?:[\w.$@-]*/)*([\w$.]+)\.([\w$<>]+)\(([^)]*)\)""")
 
         fun parse(line: String): StackFrame? {
-            val match = FRAME.find(line) ?: return null
+            val normalized = HIDDEN_CLASS_HEX.replace(line, "")
+            val match = FRAME.find(normalized) ?: return null
             return StackFrame(
                 raw = line.trim(),
-                className = match.groupValues[1],
+                className = match.groupValues[1].substringBefore("$\$Lambda"),
                 method = match.groupValues[2],
                 source = match.groupValues[3].takeIf { it.isNotBlank() },
             )

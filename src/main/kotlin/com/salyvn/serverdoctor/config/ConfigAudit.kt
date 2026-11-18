@@ -743,7 +743,7 @@ class ConfigAudit {
                         location = "${file.label}:${softEntry.line}",
                         detail = "despawn-ranges.$category has soft=$soft >= hard=$hard, inverting random despawn distance so mobs never enter gradual despawning before hard removal.",
                     )
-                } else if (hard != null && hardEntry != null && maxActiveChunks != null) {
+                } else if (hard != null && maxActiveChunks != null) {
                     val ceilingBlocks = (maxActiveChunks + 2) * 16
                     if (hard > ceilingBlocks) {
                         sink.add(

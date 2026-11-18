@@ -9,6 +9,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.salyvn.serverdoctor.core.ScanReport
 import com.salyvn.serverdoctor.input.LogSource
 import com.salyvn.serverdoctor.log.SparkFlamegraphAnalyzer
+import com.salyvn.serverdoctor.log.SparkMappingDictionary
 import com.salyvn.serverdoctor.plugins.PluginIndex
 import java.nio.file.Files
 import java.nio.file.Path
@@ -33,6 +34,11 @@ class SparkCommand : ReportCommand("spark") {
         help = "Plugins directory, used to attribute hotspot call branches to installed plugin jars",
     ).path(mustExist = true, canBeFile = false)
 
+    private val mappingsFile by option(
+        "--mappings",
+        help = "Optional Mojang ProGuard (.txt), Tiny v2 (.tiny), or TSRG (.tsrg) mappings file to deobfuscate frames",
+    ).path(mustExist = true, canBeDir = false)
+
     override fun run() {
         val files = targets.flatMap { resolveInputs(it) }
         if (files.isEmpty()) {
@@ -41,9 +47,10 @@ class SparkCommand : ReportCommand("spark") {
         }
 
         val index = pluginsDir?.let { PluginIndex.read(it) } ?: PluginIndex.EMPTY
+        val mappings = mappingsFile?.let { SparkMappingDictionary.read(it) } ?: SparkMappingDictionary.EMPTY
         val reports = mutableListOf<ScanReport>()
         for (file in files) {
-            reports += SparkFlamegraphAnalyzer.analyseSource(LogSource.of(file), index)
+            reports += SparkFlamegraphAnalyzer.analyseSource(LogSource.of(file), index, mappings)
         }
         emit(reports)
     }

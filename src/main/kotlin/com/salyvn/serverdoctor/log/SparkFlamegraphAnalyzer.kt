@@ -84,6 +84,23 @@ object SparkFlamegraphAnalyzer {
         val evidence: List<String>,
     )
 
+    data class AsyncPoolSaturationHit(
+        val line: Int,
+        val discriminator: String,
+        val category: HotspotCategory,
+        val threadName: String,
+        val sharePercent: Double,
+        val hotFrame: String,
+        val blamedPlugin: String?,
+        val detail: String,
+        val evidence: List<String>,
+    )
+
+    class DeobfStats(
+        var remappedFrames: Int = 0,
+        var demangledLambdas: Int = 0,
+    )
+
     private data class TreeFrame(
         val depth: Int,
         val line: Int,
@@ -122,12 +139,15 @@ object SparkFlamegraphAnalyzer {
         "DedicatedServer.sleepForTick",
         "ScheduledThreadPoolExecutor\$DelayedWorkQueue",
         "ThreadPoolExecutor.getTask",
+        "ForkJoinPool.awaitWork",
+        "SynchronousQueue.poll",
+        "SynchronousQueue\$TransferStack.transfer",
         "SelectorImpl.lockAndDoSelect",
         "EPoll.wait",
     )
 
     private val THREAD_HEADER_RE = Regex(
-        """^\s*(?:\[spark]\s*)?(Server thread|Primary thread|Region Scheduler Thread[^(\n%]*|TickRegionThread[^(\n%]*|Folia[^\n(%]*?)(?:\s+\(?(\d+(?:\.\d+)?)%\)?)?(?:\s*\((\d+(?:\.\d+)?)\s*ms\))?\s*$""",
+        """^\s*(?:\[spark]\s*)?(Server thread|Primary thread|Region Scheduler Thread[^(\n%]*|TickRegionThread[^(\n%]*|Global Region Scheduler[^(\n%]*|Folia[^\n(%]*?|Craft Scheduler Thread[^(\n%]*|Paper Async[^\n(%]*|ForkJoinPool\.commonPool-worker[^\n(%]*|Netty[^\n(%]*)(?:\s+\(?(\d+(?:\.\d+)?)%\)?)?(?:\s*\((\d+(?:\.\d+)?)\s*ms\))?\s*$""",
         RegexOption.IGNORE_CASE,
     )
 
@@ -150,7 +170,11 @@ object SparkFlamegraphAnalyzer {
         return trimmed.startsWith("{") || trimmed.startsWith("\"threads\"") || trimmed.startsWith("\"children\"")
     }
 
-    fun analyseSource(source: LogSource, plugins: PluginIndex = PluginIndex.EMPTY): ScanReport {
+    fun analyseSource(
+        source: LogSource,
+        plugins: PluginIndex = PluginIndex.EMPTY,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+    ): ScanReport {
         val rawLines = mutableListOf<Pair<Int, String>>()
         val urlHits = mutableListOf<Finding>()
         var totalLines = 0
@@ -173,7 +197,9 @@ object SparkFlamegraphAnalyzer {
             }
         }
 
-        val hits = detectHotspotsFromLines(rawLines, plugins)
+        val stats = DeobfStats()
+        val hits = detectHotspotsFromLines(rawLines, plugins, mappings, stats)
+        val asyncHits = detectAsyncPoolSaturationFromLines(rawLines, plugins, mappings)
         val hotspotFindings = hits.map { hit ->
             Finding(
                 ruleId = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY.id,
@@ -186,13 +212,34 @@ object SparkFlamegraphAnalyzer {
                 provenance = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY.provenance,
             )
         }
-        val findings = (hotspotFindings + urlHits).sortedWith(
+        val asyncFindings = asyncHits.map { hit ->
+            Finding(
+                ruleId = LogRules.SPARK_ASYNC_POOL_SATURATION.id,
+                severity = LogRules.SPARK_ASYNC_POOL_SATURATION.severity,
+                title = LogRules.SPARK_ASYNC_POOL_SATURATION.title,
+                location = "line ${hit.line}",
+                detail = hit.detail,
+                evidence = hit.evidence,
+                fix = LogRules.SPARK_ASYNC_POOL_SATURATION.fix,
+                provenance = LogRules.SPARK_ASYNC_POOL_SATURATION.provenance,
+            )
+        }
+        val findings = (hotspotFindings + asyncFindings + urlHits).sortedWith(
             compareByDescending<Finding> { it.severity.rank }.thenBy { it.ruleId }.thenBy { it.location },
         )
         val facts = linkedMapOf(
             "lines read" to totalLines.toString(),
             "hotspots categorized" to hits.size.toString(),
         )
+        if (asyncHits.isNotEmpty()) {
+            facts["async pool bottlenecks"] = asyncHits.size.toString()
+        }
+        if (!mappings.isEmpty || stats.remappedFrames > 0) {
+            facts["frames deobfuscated"] = stats.remappedFrames.toString()
+        }
+        if (stats.demangledLambdas > 0) {
+            facts["lambda frames demangled"] = stats.demangledLambdas.toString()
+        }
         if (!plugins.isEmpty) {
             facts["plugins indexed"] = plugins.jars.count { it.isPlugin }.toString()
         }
@@ -210,10 +257,13 @@ object SparkFlamegraphAnalyzer {
         subject: String,
         text: String,
         plugins: PluginIndex = PluginIndex.EMPTY,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
     ): ScanReport {
         val indexed = text.lineSequence().mapIndexed { idx, s -> (idx + 1) to s }.toList()
-        val hits = detectHotspotsFromLines(indexed, plugins)
-        val findings = hits.map { hit ->
+        val stats = DeobfStats()
+        val hits = detectHotspotsFromLines(indexed, plugins, mappings, stats)
+        val asyncHits = detectAsyncPoolSaturationFromLines(indexed, plugins, mappings)
+        val hotspotFindings = hits.map { hit ->
             Finding(
                 ruleId = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY.id,
                 severity = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY.severity,
@@ -225,39 +275,66 @@ object SparkFlamegraphAnalyzer {
                 provenance = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY.provenance,
             )
         }
+        val asyncFindings = asyncHits.map { hit ->
+            Finding(
+                ruleId = LogRules.SPARK_ASYNC_POOL_SATURATION.id,
+                severity = LogRules.SPARK_ASYNC_POOL_SATURATION.severity,
+                title = LogRules.SPARK_ASYNC_POOL_SATURATION.title,
+                location = "line ${hit.line}",
+                detail = hit.detail,
+                evidence = hit.evidence,
+                fix = LogRules.SPARK_ASYNC_POOL_SATURATION.fix,
+                provenance = LogRules.SPARK_ASYNC_POOL_SATURATION.provenance,
+            )
+        }
+        val findings = (hotspotFindings + asyncFindings).sortedWith(
+            compareByDescending<Finding> { it.severity.rank }.thenBy { it.ruleId }.thenBy { it.location },
+        )
+        val facts = linkedMapOf(
+            "lines read" to indexed.size.toString(),
+            "hotspots categorized" to hits.size.toString(),
+        )
+        if (asyncHits.isNotEmpty()) {
+            facts["async pool bottlenecks"] = asyncHits.size.toString()
+        }
+        if (!mappings.isEmpty || stats.remappedFrames > 0) {
+            facts["frames deobfuscated"] = stats.remappedFrames.toString()
+        }
+        if (stats.demangledLambdas > 0) {
+            facts["lambda frames demangled"] = stats.demangledLambdas.toString()
+        }
         return ScanReport(
             tool = BuildInfo.NAME,
             toolVersion = BuildInfo.version,
             subject = subject,
             subjectKind = "spark",
             findings = findings,
-            facts = linkedMapOf(
-                "lines read" to indexed.size.toString(),
-                "hotspots categorized" to hits.size.toString(),
-            ),
+            facts = facts,
         )
     }
 
     fun detectHotspotsFromLines(
         lines: List<Pair<Int, String>>,
         plugins: PluginIndex = PluginIndex.EMPTY,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+        stats: DeobfStats? = null,
     ): List<SparkHotspotHit> {
         if (lines.isEmpty()) return emptyList()
         val results = LinkedHashMap<String, SparkHotspotHit>()
 
-        for (hit in parseCollapsedFlamegraph(lines, plugins)) {
+        for (hit in parseCollapsedFlamegraph(lines, plugins, mappings, stats)) {
             val prev = results[hit.discriminator]
             if (prev == null || hit.sharePercent > prev.sharePercent) {
                 results[hit.discriminator] = hit
             }
         }
-        for (hit in parseTextCallTree(lines, plugins)) {
+        for (hit in parseTextCallTree(lines, plugins, mappings, stats)) {
             val prev = results[hit.discriminator]
             if (prev == null || hit.sharePercent > prev.sharePercent) {
                 results[hit.discriminator] = hit
             }
         }
-        for (hit in parseJsonProfile(lines, plugins)) {
+        for (hit in parseJsonProfile(lines, plugins, mappings, stats)) {
             val prev = results[hit.discriminator]
             if (prev == null || hit.sharePercent > prev.sharePercent) {
                 results[hit.discriminator] = hit
@@ -277,7 +354,23 @@ object SparkFlamegraphAnalyzer {
             (trimmed.contains("Folia", ignoreCase = true) && !trimmed.contains("Async", ignoreCase = true) && !trimmed.contains("Watchdog", ignoreCase = true))
     }
 
-    private fun normalizeFrame(raw: String): String {
+    private fun isAsyncWorkerThreadName(name: String): Boolean {
+        val trimmed = name.trim()
+        return trimmed.contains("Craft Scheduler Thread", ignoreCase = true) ||
+            trimmed.contains("Paper Async", ignoreCase = true) ||
+            trimmed.contains("Folia Async Scheduler", ignoreCase = true) ||
+            trimmed.contains("ForkJoinPool.commonPool-worker", ignoreCase = true)
+    }
+
+    private fun normalizeFrame(
+        raw: String,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+        stats: DeobfStats? = null,
+    ): String {
+        val d = mappings.deobfuscateFrame(raw)
+        if (d.wasRemapped) stats?.let { it.remappedFrames++ }
+        if (d.wasLambdaDemangled) stats?.let { it.demangledLambdas++ }
+        if (d.className.isNotEmpty()) return d.qualifiedFrame
         val withoutModule = raw.trim().substringAfterLast('/')
         return withoutModule.substringBefore('(').trim().replace('#', '.')
     }
@@ -431,6 +524,8 @@ object SparkFlamegraphAnalyzer {
     private fun parseTextCallTree(
         lines: List<Pair<Int, String>>,
         plugins: PluginIndex,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+        stats: DeobfStats? = null,
     ): List<SparkHotspotHit> {
         val hits = mutableListOf<SparkHotspotHit>()
         var currentThread = "Server thread"
@@ -443,7 +538,7 @@ object SparkFlamegraphAnalyzer {
             if (withoutSpark.isBlank()) continue
 
             val headerMatch = THREAD_HEADER_RE.find(withoutSpark)
-            if (headerMatch != null && !withoutSpark.contains('.') ) {
+            if (headerMatch != null && (!headerMatch.groupValues[1].contains('.') || headerMatch.groupValues[1].contains("ForkJoinPool.commonPool-worker"))) {
                 val candidate = headerMatch.groupValues[1].trim()
                 currentThread = candidate
                 activeTickThread = isTickThreadName(candidate)
@@ -456,7 +551,7 @@ object SparkFlamegraphAnalyzer {
             val rawFrame = nodeMatch.groupValues[2].trim()
             val pct = nodeMatch.groupValues[3].toDoubleOrNull() ?: continue
             val ms = nodeMatch.groupValues[4].takeIf { it.isNotBlank() }?.toDoubleOrNull()
-            val norm = normalizeFrame(rawFrame)
+            val norm = normalizeFrame(rawFrame, mappings, stats)
             val depth = prefix.length
 
             while (stack.isNotEmpty() && stack.last().depth >= depth) {
@@ -502,6 +597,8 @@ object SparkFlamegraphAnalyzer {
     private fun parseCollapsedFlamegraph(
         lines: List<Pair<Int, String>>,
         plugins: PluginIndex,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+        stats: DeobfStats? = null,
     ): List<SparkHotspotHit> {
         data class CollapsedSample(
             val line: Int,
@@ -522,12 +619,12 @@ object SparkFlamegraphAnalyzer {
             if (weight <= 0.0) continue
 
             val first = parts.first()
-            val hasExplicitThread = !first.contains('.') || isTickThreadName(first)
+            val hasExplicitThread = !first.contains('.') || isTickThreadName(first) || isAsyncWorkerThreadName(first)
             val thread = if (hasExplicitThread) first else "Server thread"
             val stackFrames = if (hasExplicitThread) parts.drop(1) else parts
             if (hasExplicitThread && !isTickThreadName(thread)) continue
 
-            val normalized = stackFrames.map { normalizeFrame(it) }
+            val normalized = stackFrames.map { normalizeFrame(it, mappings, stats) }
             samples += CollapsedSample(lineNo, thread, normalized, weight, raw.trim())
             threadTotals[thread] = (threadTotals[thread] ?: 0.0) + weight
         }
@@ -602,6 +699,8 @@ object SparkFlamegraphAnalyzer {
     private fun parseJsonProfile(
         lines: List<Pair<Int, String>>,
         plugins: PluginIndex,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+        stats: DeobfStats? = null,
     ): List<SparkHotspotHit> {
         val firstBraceIdx = lines.indexOfFirst { it.second.trimStart().startsWith("{") }
         if (firstBraceIdx < 0) return emptyList()
@@ -624,9 +723,11 @@ object SparkFlamegraphAnalyzer {
             val method = node["methodName"]?.jsonPrimitive?.content
                 ?: node["method"]?.jsonPrimitive?.content
             val rawName = node["name"]?.jsonPrimitive?.content
+            val lineNum = node["lineNumber"]?.jsonPrimitive?.content
+            val lineSuffix = if (!lineNum.isNullOrBlank()) "(SourceFile:$lineNum)" else ""
             val frame = when {
-                !cls.isNullOrBlank() && !method.isNullOrBlank() -> normalizeFrame("$cls.$method")
-                !rawName.isNullOrBlank() -> normalizeFrame(rawName)
+                !cls.isNullOrBlank() && !method.isNullOrBlank() -> normalizeFrame("$cls.$method$lineSuffix", mappings, stats)
+                !rawName.isNullOrBlank() -> normalizeFrame("$rawName$lineSuffix", mappings, stats)
                 else -> null
             }
             val time = node["time"]?.jsonPrimitive?.doubleOrNull
@@ -675,6 +776,155 @@ object SparkFlamegraphAnalyzer {
         }
 
         return pruneGenericPluginDuplicates(hits)
+    }
+
+    /**
+     * Analyzes async scheduler and ForkJoinPool worker stacks for connection-pool starvation
+     * (such as HikariPool.getConnection waits), un-timed network sockets, contended monitor locks,
+     * or runaway background CPU loops (`L032`).
+     */
+    fun detectAsyncPoolSaturationFromLines(
+        lines: List<Pair<Int, String>>,
+        plugins: PluginIndex = PluginIndex.EMPTY,
+        mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+    ): List<AsyncPoolSaturationHit> {
+        if (lines.isEmpty()) return emptyList()
+        val out = LinkedHashMap<String, AsyncPoolSaturationHit>()
+
+        fun emitCandidate(
+            line: Int,
+            threadName: String,
+            category: HotspotCategory,
+            pct: Double,
+            hotFrame: String,
+            branchFrames: List<String>,
+            evidence: List<String>,
+        ) {
+            val minPct = if (category == HotspotCategory.PLUGIN_CPU_HOTSPOT) 50.0 else 35.0
+            if (pct < minPct) return
+            if (category != HotspotCategory.JDBC_OR_NETWORK_IO &&
+                category != HotspotCategory.LOCK_OR_FUTURE_WAIT &&
+                category != HotspotCategory.DISK_OR_CONFIG_IO &&
+                category != HotspotCategory.PLUGIN_CPU_HOTSPOT
+            ) {
+                return
+            }
+            val blame = attributeBranch(branchFrames, plugins)
+            val pctFmt = String.format(Locale.ROOT, "%.1f%%", pct)
+            val symptom = when {
+                hotFrame.contains("HikariPool.") -> "JDBC connection-pool starvation ($hotFrame)"
+                category == HotspotCategory.JDBC_OR_NETWORK_IO -> "blocking socket or database wait ($hotFrame)"
+                category == HotspotCategory.LOCK_OR_FUTURE_WAIT -> "lock or future convoy ($hotFrame)"
+                category == HotspotCategory.DISK_OR_CONFIG_IO -> "blocking filesystem I/O ($hotFrame)"
+                else -> "sustained async CPU saturation ($hotFrame)"
+            }
+            val detail = buildString {
+                append("Async worker pool saturation on ").append(threadName)
+                append(": ").append(pctFmt).append(" spent in ").append(symptom)
+                if (blame != null) append(", attributed to ").append(blame)
+                append('.')
+            }
+            val disc = "async-${category.slug}@${blame ?: hotFrame.take(40)}"
+            val prev = out[disc]
+            if (prev == null || pct > prev.sharePercent) {
+                out[disc] = AsyncPoolSaturationHit(
+                    line = line,
+                    discriminator = disc,
+                    category = category,
+                    threadName = threadName,
+                    sharePercent = pct,
+                    hotFrame = hotFrame,
+                    blamedPlugin = blame,
+                    detail = detail,
+                    evidence = evidence.take(5),
+                )
+            }
+        }
+
+        // 1. Text call-trees for async worker pools
+        var currentThread = ""
+        var activeAsync = false
+        val stack = ArrayDeque<TreeFrame>()
+        for ((lineNo, rawLine) in lines) {
+            val withoutSpark = SPARK_PREFIX_STRIP.replace(stripLogEnvelope(rawLine), "")
+            if (withoutSpark.isBlank()) continue
+            val headerMatch = THREAD_HEADER_RE.find(withoutSpark)
+            if (headerMatch != null && (!headerMatch.groupValues[1].contains('.') || headerMatch.groupValues[1].contains("ForkJoinPool.commonPool-worker"))) {
+                currentThread = headerMatch.groupValues[1].trim()
+                activeAsync = isAsyncWorkerThreadName(currentThread)
+                stack.clear()
+                continue
+            }
+            val nodeMatch = TREE_NODE_RE.find(withoutSpark) ?: continue
+            val depth = nodeMatch.groupValues[1].length
+            val rawFrame = nodeMatch.groupValues[2].trim()
+            val pct = nodeMatch.groupValues[3].toDoubleOrNull() ?: continue
+            val ms = nodeMatch.groupValues[4].takeIf { it.isNotBlank() }?.toDoubleOrNull()
+            val norm = normalizeFrame(rawFrame, mappings)
+            while (stack.isNotEmpty() && stack.last().depth >= depth) stack.removeLast()
+            stack.addLast(TreeFrame(depth, lineNo, rawFrame, norm, pct, ms))
+            if (!activeAsync) continue
+            val branchNorm = stack.map { it.normalizedFrame }
+            if (isIdleBranch(branchNorm)) continue
+            val cat = classifyFrame(norm, plugins) ?: continue
+            if (cat == HotspotCategory.PLUGIN_CPU_HOTSPOT) continue // check leaf/specific first; CPU loop handled if no specific child
+            val ev = stack.takeLast(4).map { "${it.rawFrame} ${String.format(Locale.ROOT, "%.1f%%", it.percent)}" }
+            emitCandidate(lineNo, currentThread, cat, pct, norm, branchNorm, ev)
+        }
+
+        // 2. Collapsed flamegraphs for async worker pools
+        var asyncTotalWeight = 0.0
+        data class AsyncBucket(
+            var weight: Double = 0.0,
+            var firstLine: Int = Int.MAX_VALUE,
+            val thread: String,
+            val category: HotspotCategory,
+            val hotFrame: String,
+            val branch: List<String>,
+            val evidence: MutableList<String> = mutableListOf(),
+        )
+        val asyncBuckets = LinkedHashMap<String, AsyncBucket>()
+        for ((lineNo, raw) in lines) {
+            val m = COLLAPSED_STACK_RE.find(raw) ?: continue
+            val parts = m.groupValues[1].split(';').map { it.trim() }.filter { it.isNotEmpty() }
+            if (parts.size < 3) continue
+            val weight = m.groupValues[2].toDoubleOrNull() ?: continue
+            if (weight <= 0.0) continue
+            val first = parts.first()
+            if (!isAsyncWorkerThreadName(first)) continue
+            asyncTotalWeight += weight
+            val normFrames = parts.drop(1).map { normalizeFrame(it, mappings) }
+            if (isIdleBranch(normFrames)) continue
+            var chosenCat: HotspotCategory? = null
+            var chosenFrame: String? = null
+            for (f in normFrames.asReversed()) {
+                val c = classifyFrame(f, plugins) ?: continue
+                if (c != HotspotCategory.PLUGIN_CPU_HOTSPOT) {
+                    chosenCat = c
+                    chosenFrame = f
+                    break
+                } else if (chosenCat == null) {
+                    chosenCat = c
+                    chosenFrame = f
+                }
+            }
+            val cat = chosenCat ?: continue
+            val hf = chosenFrame ?: continue
+            val blame = attributeBranch(normFrames, plugins)
+            val key = "${cat.slug}::${blame ?: hf}"
+            val b = asyncBuckets.getOrPut(key) { AsyncBucket(thread = first, category = cat, hotFrame = hf, branch = normFrames) }
+            b.weight += weight
+            if (lineNo < b.firstLine) b.firstLine = lineNo
+            if (b.evidence.size < 3) b.evidence += raw.trim()
+        }
+        if (asyncTotalWeight > 0.0) {
+            for (b in asyncBuckets.values) {
+                val pct = (b.weight / asyncTotalWeight) * 100.0
+                emitCandidate(b.firstLine, b.thread, b.category, pct, b.hotFrame, b.branch, b.evidence)
+            }
+        }
+
+        return out.values.sortedByDescending { it.sharePercent }
     }
 
     /**

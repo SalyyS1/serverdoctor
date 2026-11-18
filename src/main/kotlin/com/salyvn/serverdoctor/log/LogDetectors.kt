@@ -81,6 +81,16 @@ object LogDetectors {
     private val CHUNK_STAGE_NAME = Regex(
         """\b(STRUCTURE_STARTS|STRUCTURE_REFERENCES|BIOMES|NOISE|SURFACE|CARVERS|FEATURES|INITIALIZE_LIGHT|LIGHT|SPAWN|FULL)\b""",
     )
+    private val LEGACY_CB_NMS_SYMBOL_RE = Regex(
+        """(?:org[./]bukkit[./]craftbukkit[./]v1_\d+_R\d+|net[./]minecraft[./]server[./]v1_\d+_R\d+)""",
+    )
+    private val REMAP_JAR_RE = Regex("""(?:remap(?:ping)?\s+plugin\s+|plugins/)([^\s':"]+\.jar)""", RegexOption.IGNORE_CASE)
+    private val COMPONENT_ID_RE = Regex(
+        """\b(minecraft:(?:item_model|equippable|consumable|custom_model_data|attribute_modifiers|enchantments|custom_data|food|tool|death_protection|glider|tooltip_style|damage_resistant|repairable|enchantable|use_cooldown|use_remainder|trim|lore|item_name|custom_name)|[a-z0-9_.-]+:[a-z0-9_/.-]+)\b""",
+    )
+    private val COMPONENT_OR_REGISTRY_SIGNAL_RE = Regex(
+        """(?:DataComponentPatch|DataComponentMap|DataComponentType|DataComponents|RegistryDataLoader|RegistrySynchronization|Failed to load registries due to above errors|Tried to load invalid item|Failed to parse\s+item|DataResult\.Error)""",
+    )
 
     /** Class file major 52 is Java 8, and each release adds one, so the release is major - 44. */
     private const val JAVA_CLASS_FILE_OFFSET = 44
@@ -708,6 +718,148 @@ object LogDetectors {
             val lines = listOf(event.message) + event.continuation
             val hit = FoliaStallTriager.triageDump(event.startLine, lines, plugins, isWatchdogDump = false)
                 ?: return@Signature null
+            DetectorMatch(
+                discriminator = hit.discriminator,
+                detail = hit.detail,
+                evidence = hit.evidence,
+            )
+        },
+
+        Signature(LogRules.PAPER_PLUGIN_REMAPPER_OR_LINKAGE) { event, plugins ->
+            val full = event.fullText
+            val msg = event.message
+            val isRemapperFailure = full.contains("PluginRemapper") ||
+                msg.contains("Failed to remap plugin", ignoreCase = true) ||
+                msg.contains("Encountered exception remapping plugins", ignoreCase = true)
+            val hasLinkageType = full.contains("NoSuchMethodError") ||
+                full.contains("NoClassDefFoundError") ||
+                full.contains("ClassNotFoundException") ||
+                full.contains("IncompatibleClassChangeError") ||
+                full.contains("LinkageError")
+            val legacySymbol = LEGACY_CB_NMS_SYMBOL_RE.find(full)?.value?.replace('/', '.')
+
+            if (!isRemapperFailure && !(hasLinkageType && legacySymbol != null)) {
+                return@Signature null
+            }
+
+            val blamed = LogTriage.attribute(event, plugins)
+            val jarName = REMAP_JAR_RE.find(full)?.groupValues?.get(1)
+            val matchedJar = plugins.jars.firstOrNull { jar ->
+                (blamed != null && (jar.descriptor?.name == blamed || jar.fileName == blamed)) ||
+                    (jarName != null && jar.fileName.equals(jarName, ignoreCase = true))
+            }
+            val nsNote = matchedJar?.manifest?.get("paperweight-mappings-namespace")?.let { ns ->
+                " (jar manifest mappings: $ns)"
+            } ?: ""
+
+            val subject = blamed ?: jarName ?: "a plugin"
+            val detail = if (isRemapperFailure) {
+                "Paper PluginRemapper failed while rewriting $subject$nsNote: ${msg.trim().take(130)}."
+            } else {
+                "$subject referenced removed CraftBukkit/NMS versioned package $legacySymbol on a Mojang-mapped Paper runtime$nsNote."
+            }
+
+            DetectorMatch(
+                discriminator = "paper-remap-linkage@${blamed ?: jarName ?: (legacySymbol ?: "remap")}",
+                detail = detail,
+                evidence = event.frames.take(4).map { it.raw }.ifEmpty { listOf(msg.trim()) },
+            )
+        },
+
+        Signature(LogRules.DATA_COMPONENT_CODEC_OR_REGISTRY_ERROR) { event, plugins ->
+            val full = event.fullText
+            val msg = event.message
+            val hasCoreSignal = COMPONENT_OR_REGISTRY_SIGNAL_RE.containsMatchIn(full)
+            val hasCodecWithComponent = (full.contains("Failed to parse", ignoreCase = true) ||
+                full.contains("Failed to decode", ignoreCase = true) ||
+                full.contains("Codec", ignoreCase = true) ||
+                full.contains("MalformedJsonException")) &&
+                (full.contains("minecraft:item_model") ||
+                    full.contains("minecraft:equippable") ||
+                    full.contains("minecraft:consumable") ||
+                    full.contains("minecraft:custom_model_data") ||
+                    full.contains("minecraft:attribute_modifiers") ||
+                    full.contains("minecraft:enchantments") ||
+                    full.contains("DataComponent"))
+
+            if (!hasCoreSignal && !hasCodecWithComponent) return@Signature null
+
+            val isRegistryBootFailure = full.contains("RegistryDataLoader") ||
+                full.contains("Failed to load registries", ignoreCase = true) ||
+                full.contains("RegistrySynchronization")
+            val resourceKey = COMPONENT_ID_RE.find(full)?.groupValues?.get(1)
+            val blame = LogTriage.attribute(event, plugins)
+            val kind = if (isRegistryBootFailure) "registry-codec" else "data-component-codec"
+
+            DetectorMatch(
+                discriminator = "$kind@${resourceKey ?: (blame ?: "codec")}",
+                detail = buildString {
+                    if (isRegistryBootFailure) {
+                        append("Minecraft 1.21.4+ datapack registry validation failed")
+                    } else {
+                        append("Minecraft 1.21.4+ DataComponent codec failed to decode payload")
+                    }
+                    if (resourceKey != null) append(" for '$resourceKey'")
+                    if (blame != null) append(" (involving $blame)")
+                    append(": ").append(msg.trim().take(120)).append('.')
+                },
+                evidence = event.frames.take(3).map { it.raw }.ifEmpty { listOf(msg.trim()) },
+            )
+        },
+
+        Signature(LogRules.CHAT_SIGNATURE_OR_CONFIG_PHASE_REJECT) { event, plugins ->
+            val full = event.fullText
+            val msg = event.message
+            val isChatSig = full.contains("SignedMessageChain") ||
+                msg.contains("Chat message validation failure", ignoreCase = true) ||
+                msg.contains("Out-of-order chat packet", ignoreCase = true) ||
+                msg.contains("Received chat packet with missing or invalid signature", ignoreCase = true) ||
+                msg.contains("expired profile public key", ignoreCase = true)
+            val isConfigPhase = full.contains("ServerConfigurationPacketListenerImpl") &&
+                (event.isProblem ||
+                    msg.contains("Failed to handle packet", ignoreCase = true) ||
+                    msg.contains("Missing registry entries", ignoreCase = true) ||
+                    msg.contains("KnownPacks", ignoreCase = true) ||
+                    msg.contains("disconnect", ignoreCase = true))
+            val isPacketRateKick = msg.contains("exceeding packet rate limit", ignoreCase = true) ||
+                msg.contains("kicked for exceeding packet rate", ignoreCase = true) ||
+                (full.contains("PacketLimiter") && event.isProblem)
+
+            if (!isChatSig && !isConfigPhase && !isPacketRateKick) return@Signature null
+
+            val blame = LogTriage.attribute(event, plugins)
+            val kind = when {
+                isChatSig -> "signed-chat-reject"
+                isConfigPhase -> "configuration-phase-disconnect"
+                else -> "packet-rate-limiter-kick"
+            }
+
+            DetectorMatch(
+                discriminator = "$kind@${blame ?: "protocol"}",
+                detail = buildString {
+                    when {
+                        isChatSig -> append("Signed chat chain validation rejected a player message (check enforce-secure-profile and proxy/plugin chat rewriting)")
+                        isConfigPhase -> append("Client disconnected during Minecraft 1.21.4+ CONFIGURATION protocol negotiation")
+                        else -> append("Paper PacketLimiter disconnected a client for exceeding configured packet rate limits")
+                    }
+                    if (blame != null) append(", involving $blame")
+                    append(": ").append(msg.trim().take(120)).append('.')
+                },
+                evidence = event.frames.take(3).map { it.raw }.ifEmpty { listOf(msg.trim()) },
+            )
+        },
+
+        Signature(LogRules.FOLIA_CROSS_REGION_AFFINITY_MISMATCH) { event, plugins ->
+            val hit = FoliaAffinityAnalyzer.analyzeAffinityMismatch(event, plugins) ?: return@Signature null
+            DetectorMatch(
+                discriminator = hit.discriminator,
+                detail = hit.detail,
+                evidence = hit.evidence,
+            )
+        },
+
+        Signature(LogRules.FOLIA_SCHEDULER_TASK_EXCEPTION_OR_BACKLOG) { event, plugins ->
+            val hit = FoliaAffinityAnalyzer.analyzeSchedulerFaultOrBacklog(event, plugins) ?: return@Signature null
             DetectorMatch(
                 discriminator = hit.discriminator,
                 detail = hit.detail,

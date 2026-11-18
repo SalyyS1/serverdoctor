@@ -22,7 +22,10 @@ import com.salyvn.serverdoctor.plugins.PluginIndex
  * from a stack frame - and when a plugins directory is supplied, the label and the frame are checked
  * against what is actually installed instead of being guessed at.
  */
-class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
+class LogTriage(
+    private val plugins: PluginIndex = PluginIndex.EMPTY,
+    private val mappings: SparkMappingDictionary = SparkMappingDictionary.EMPTY,
+) {
 
     private data class Key(val ruleId: String, val discriminator: String)
 
@@ -178,13 +181,22 @@ class LogTriage(private val plugins: PluginIndex = PluginIndex.EMPTY) {
         }
 
         flushFoliaStall()
-        for (sparkHit in SparkFlamegraphAnalyzer.detectHotspotsFromLines(sparkProfileLines, plugins)) {
+        for (sparkHit in SparkFlamegraphAnalyzer.detectHotspotsFromLines(sparkProfileLines, plugins, mappings)) {
             record(
                 rule = LogRules.SPARK_FLAMEGRAPH_HOTSPOT_CATEGORY,
                 discriminator = sparkHit.discriminator,
                 line = sparkHit.line,
                 detail = sparkHit.detail,
                 evidence = sparkHit.evidence,
+            )
+        }
+        for (asyncHit in SparkFlamegraphAnalyzer.detectAsyncPoolSaturationFromLines(sparkProfileLines, plugins, mappings)) {
+            record(
+                rule = LogRules.SPARK_ASYNC_POOL_SATURATION,
+                discriminator = asyncHit.discriminator,
+                line = asyncHit.line,
+                detail = asyncHit.detail,
+                evidence = asyncHit.evidence,
             )
         }
 

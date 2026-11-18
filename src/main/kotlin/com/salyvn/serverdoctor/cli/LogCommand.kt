@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.types.path
 import com.salyvn.serverdoctor.core.ScanReport
 import com.salyvn.serverdoctor.input.LogSource
 import com.salyvn.serverdoctor.log.LogTriage
+import com.salyvn.serverdoctor.log.SparkMappingDictionary
 import com.salyvn.serverdoctor.plugins.PluginIndex
 import java.nio.file.Files
 import java.nio.file.Path
@@ -33,6 +34,11 @@ class LogCommand : ReportCommand("log") {
         help = "Plugins directory, used to attribute stack frames and logger labels to real plugins",
     ).path(mustExist = true, canBeFile = false)
 
+    private val mappingsFile by option(
+        "--mappings",
+        help = "Optional Mojang ProGuard (.txt), Tiny v2 (.tiny), or TSRG (.tsrg) mappings file for embedded Spark trees",
+    ).path(mustExist = true, canBeDir = false)
+
     override fun run() {
         val logs = targets.flatMap { resolveLogs(it) }
         if (logs.isEmpty()) {
@@ -41,7 +47,8 @@ class LogCommand : ReportCommand("log") {
         }
 
         val index = pluginsDir?.let { PluginIndex.read(it) } ?: PluginIndex.EMPTY
-        val triage = LogTriage(index)
+        val mappings = mappingsFile?.let { SparkMappingDictionary.read(it) } ?: SparkMappingDictionary.EMPTY
+        val triage = LogTriage(index, mappings)
         val reports = mutableListOf<ScanReport>()
         for (log in logs) reports += triage.analyse(LogSource.of(log))
         emit(reports)

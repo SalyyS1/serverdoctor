@@ -98,7 +98,7 @@ java -jar serverdoctor.jar log /srv/mc/logs/latest.log --plugins /srv/mc/plugins
 java -jar serverdoctor.jar log logs/2026-08-24-1.log.gz
 
 # An offline Spark text call-tree, collapsed flamegraph (.folded), or JSON sampler export
-java -jar serverdoctor.jar spark spark-tree.txt --plugins /srv/mc/plugins
+java -jar serverdoctor.jar spark spark-tree.txt --plugins /srv/mc/plugins --mappings server.txt
 
 # Configuration, judged across files
 java -jar serverdoctor.jar config /srv/mc
@@ -146,18 +146,29 @@ default) decides the exit code so a scan can gate a deploy.
      preserving 1-based line numbers and duplicate keys that standard loaders silently overwrite.
    - `RegionFileHeader` inspects only the 8 KiB Anvil `.mca` sector table without decompressing chunks.
 2. **Nine cross-artifact audits (`log`, `spark`, `config`, `flags`, `plugins`, `world`, `crash`, `perms`, `diff`)**:
-   - **Folia region threading, stall triage & entity-density attribution**: detects `TickThread.ensureTickThread`
-     off-region world access, synchronous `Entity.teleport` (`teleportAsync` required), unsupported `CraftScheduler`
-     calls (`L017`), per-region `FoliaWatchdogThread` stalls (`L018`), root-cause classification of Folia stalls
-     into cross-region `CompletableFuture.join` deadlocks, lock contention with peer owner attribution, blocking
-     socket/JDBC I/O, disk I/O, or regionizer barriers (`L028`), live regional MSPT overloads with entity-type
-     density attribution (`L025`), and `threaded-regions.threads` starvation (`C023`).
-   - **Spark profiler flamegraph hotspot categorization**: parses offline Spark indented call-trees, collapsed
-     flamegraph stacks (`.folded`), and Spark JSON sampler trees (`spark` CLI / `analyze_spark_profile` MCP /
-     log-embedded `[spark]` trees), filters out idle inter-tick `waitUntilNextTick` parking, categorizes dominant
+   - **Folia region threading, scheduler affinity, stall triage & entity-density attribution**: detects
+     `TickThread.ensureTickThread` off-region world access, synchronous `Entity.teleport` (`teleportAsync`
+     required), unsupported `CraftScheduler` calls (`L017`), cross-context scheduler affinity mismatches across
+     `GlobalRegionScheduler`, `RegionScheduler`, `EntityScheduler`, and `FoliaAsyncScheduler` (`L033`), uncaught
+     Folia scheduled task faults and `ThreadedRegionizer` merge pressure (`L034`), per-region `FoliaWatchdogThread`
+     stalls (`L018`), root-cause classification of Folia stalls into cross-region `CompletableFuture.join`
+     deadlocks, lock contention with peer owner attribution, blocking socket/JDBC I/O, disk I/O, or regionizer
+     barriers (`L028`), live regional MSPT overloads with entity-type density attribution (`L025`), and
+     `threaded-regions.threads` starvation (`C023`).
+   - **Spark profiler flamegraph hotspot categorization & async stack deobfuscation**: parses offline Spark
+     indented call-trees, collapsed flamegraph stacks (`.folded`), and Spark JSON sampler trees (`spark` CLI /
+     `analyze_spark_profile` MCP / log-embedded `[spark]` trees), deobfuscates Mojang ProGuard (`.txt` with
+     line-interval disambiguation), Tiny v2 (`.tiny`), and TSRG (`.tsrg`) frames while demangling JDK 21+
+     `$$Lambda` hidden classes, filters out idle inter-tick `waitUntilNextTick` parking, categorizes dominant
      tick-thread hotspots into seven root-cause classes (`JDBC_OR_NETWORK_IO`, `DISK_OR_CONFIG_IO`,
      `LOCK_OR_FUTURE_WAIT`, `ENTITY_AI_AND_COLLISIONS`, `HOPPER_AND_BLOCK_ENTITIES`, `SYNC_CHUNK_AND_WORLDGEN`,
-     `PLUGIN_CPU_HOTSPOT`), and attributes hotspots to the calling plugin frame (`L027`).
+     `PLUGIN_CPU_HOTSPOT`, `L027`), and detects async worker pool HikariCP connection starvation and lock
+     convoys (`L032`).
+   - **Minecraft 1.21.4+..26.3+ runtime, remapper & protocol diagnostics**: detects `PluginRemapper` failures
+     and legacy `org.bukkit.craftbukkit.v1_*` linkage errors on Mojang-mapped Paper runtimes (`L029`),
+     `DataComponentPatch` codec and `RegistryDataLoader` datapack registry failures (`L030`), and
+     `SignedMessageChain` chat signature rejections, `CONFIGURATION` phase KnownPacks disconnects, and
+     `PacketLimiter` kicks (`L031`).
    - **G1GC & Generational ZGC**: detects stop-the-world GC pauses exceeding the 50 ms server tick budget
      (`L019`), Full GC / `To-space exhausted` / ZGC `Allocation Stall` / >85% post-GC live heap thrashing
      (`L020`), legacy or under-provisioned ZGC flags (`F013`), and inverted G1 young-gen bounds (`F014`).
@@ -193,7 +204,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: SalyyS1/serverdoctor@v0.6.0
+      - uses: SalyyS1/serverdoctor@v0.7.0
         with:
           target: ./server
           mode: scan
@@ -435,7 +446,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-117 rules across the nine audits. Every `source:` line names a file and line in Paper or
+123 rules across the nine audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 
