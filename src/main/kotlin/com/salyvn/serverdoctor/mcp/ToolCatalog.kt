@@ -45,6 +45,7 @@ object ToolCatalog {
         LogTool,
         SparkProfileTool,
         GcLogTool,
+        MemoryAndContentionTool,
         ConfigTool,
         FlagsTool,
         PluginsTool,
@@ -377,6 +378,36 @@ object ToolCatalog {
                 source = LogSource.of(file),
                 plugins = index,
                 histoSource = histoFile?.let { LogSource.of(it) },
+            )
+            return render(listOf(report))
+        }
+    }
+
+    private object MemoryAndContentionTool : McpTool {
+        override val name = "analyze_memory_and_contention"
+        override val title = "Analyze Netty DirectByteBuffer leaks, chunk ticket leaks, and lock contention"
+        override val description =
+            "Analyze Netty ResourceLeakDetector and VM.native_memory off-heap leaks (L039), Paper 26.3 " +
+                "Moonrise chunk ticket and force-loaded chunk leaks with Chebyshev propagation footprints (L040), " +
+                "and JFR jdk.JavaMonitorEnter/jdk.ThreadPark or async-profiler lock contention profiles (L041)."
+        override val inputSchema = McpServer.objectSchema(
+            required = listOf("path"),
+            properties = mapOf(
+                "path" to ("string" to "Absolute path to server log, chunkinfo dump, JFR print output, or lock profile"),
+                "plugins_dir" to ("string" to "Optional absolute path to plugins directory for attribution"),
+            ),
+        )
+
+        override fun call(arguments: JsonObject): ToolResult {
+            val path = argument(arguments, "path") ?: return ToolResult("No path given", isError = true)
+            val file = Path.of(path)
+            if (!Files.isRegularFile(file)) return missing("Profile or log", path)
+            val index = argument(arguments, "plugins_dir")
+                ?.let { PluginIndex.read(Path.of(it)) }
+                ?: PluginIndex.EMPTY
+            val report = com.salyvn.serverdoctor.log.NativeLeakTicketAndContentionAnalyzer.diagnose(
+                source = LogSource.of(file),
+                plugins = index,
             )
             return render(listOf(report))
         }

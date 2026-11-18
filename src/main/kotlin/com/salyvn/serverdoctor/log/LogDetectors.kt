@@ -926,5 +926,22 @@ object LogDetectors {
                 evidence = listOf(event.message.trim()),
             )
         },
+
+        Signature(LogRules.NETTY_DIRECT_BYTEBUF_LEAK) { event, plugins ->
+            val text = event.fullText
+            val hasLeakBanner = text.contains("ByteBuf.release() was not called", ignoreCase = true)
+            val hasDirectPool = text.contains("DirectBufferPool", ignoreCase = true) ||
+                text.contains("direct buffer pool", ignoreCase = true) ||
+                text.contains("netty.directMemory", ignoreCase = true) ||
+                (text.contains("Internal (reserved=", ignoreCase = true) && text.contains("committed=", ignoreCase = true))
+            if (!hasLeakBanner && !hasDirectPool) return@Signature null
+            val report = NativeLeakTicketAndContentionAnalyzer.analyzeDirectByteBufLeaks(text, plugins)
+            val inc = report.incidents.firstOrNull() ?: return@Signature null
+            DetectorMatch(
+                discriminator = "direct-leak@${inc.blamedPlugin ?: inc.primaryFrame ?: inc.handlerHint ?: inc.kind.name}",
+                detail = NativeLeakTicketAndContentionAnalyzer.formatDirectLeakDetail(inc),
+                evidence = inc.evidence,
+            )
+        },
     )
 }

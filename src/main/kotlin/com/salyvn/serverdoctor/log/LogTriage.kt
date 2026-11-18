@@ -53,7 +53,9 @@ class LogTriage(
         val foliaStallLines = mutableListOf<String>()
 
         val sparkProfileLines = mutableListOf<Pair<Int, String>>()
+        val ticketAndContentionLines = mutableListOf<Pair<Int, String>>()
         var inJsonProfileBlock = false
+        var inJfrBlock = false
 
         fun record(rule: Rule, discriminator: String, line: Int, detail: String, evidence: List<String>) {
             val key = Key(rule.id, discriminator)
@@ -100,6 +102,32 @@ class LogTriage(
                             sparkProfileLines += (event.startLine + offset + 1) to contLine
                         }
                     }
+                }
+            }
+
+            if (ticketAndContentionLines.size < 20_000) {
+                fun maybeCollectAux(lineNo: Int, textLine: String) {
+                    if (ticketAndContentionLines.size >= 20_000) return
+                    val t = textLine.trimStart()
+                    if (t.contains("jdk.JavaMonitorEnter") || t.contains("jdk.ThreadPark")) inJfrBlock = true
+                    if (inJfrBlock ||
+                        t.contains("chunk", ignoreCase = true) ||
+                        t.contains("ticket", ignoreCase = true) ||
+                        t.contains("forceload", ignoreCase = true) ||
+                        t.contains("force-loaded", ignoreCase = true) ||
+                        t.contains("blocked on", ignoreCase = true) ||
+                        t.contains("parked on", ignoreCase = true) ||
+                        t.contains("stalled on", ignoreCase = true) ||
+                        t.endsWith("_[i]") || t.contains("_[i] ") || t.contains("_[j] ") ||
+                        (t.contains(';') && (t.contains("ReentrantLock") || t.contains("MonitorEnter") || t.contains("LockSupport.park")))
+                    ) {
+                        ticketAndContentionLines += lineNo to textLine
+                    }
+                    if (inJfrBlock && t == "}") inJfrBlock = false
+                }
+                maybeCollectAux(event.startLine, event.message)
+                event.continuation.forEachIndexed { offset, contLine ->
+                    maybeCollectAux(event.startLine + offset + 1, contLine)
                 }
             }
 
@@ -198,6 +226,32 @@ class LogTriage(
                 detail = asyncHit.detail,
                 evidence = asyncHit.evidence,
             )
+        }
+        if (ticketAndContentionLines.isNotEmpty()) {
+            val combinedAux = ticketAndContentionLines.joinToString("\n") { it.second }
+            val lineMap = ticketAndContentionLines.map { it.first }
+            val ticketReport = NativeLeakTicketAndContentionAnalyzer.analyzeChunkTicketLeaks(combinedAux, plugins)
+            for (leak in ticketReport.flaggedLeaks) {
+                val origLine = lineMap.getOrElse(leak.line - 1) { leak.line }
+                record(
+                    rule = LogRules.PAPER_CHUNK_TICKET_LEAK,
+                    discriminator = "chunk-ticket@${leak.world}:${leak.ticketType}:${leak.owner}",
+                    line = origLine,
+                    detail = NativeLeakTicketAndContentionAnalyzer.formatTicketLeakDetail(leak),
+                    evidence = leak.evidence,
+                )
+            }
+            val contentionReport = NativeLeakTicketAndContentionAnalyzer.analyzeLockContention(combinedAux, plugins)
+            for (hotspot in contentionReport.flaggedHotspots) {
+                val origLine = lineMap.getOrElse(hotspot.line - 1) { hotspot.line }
+                record(
+                    rule = LogRules.JFR_ASYNC_PROFILER_LOCK_CONTENTION,
+                    discriminator = "lock-contention@${hotspot.waiterThread}:${hotspot.monitorClass}",
+                    line = origLine,
+                    detail = NativeLeakTicketAndContentionAnalyzer.formatContentionDetail(hotspot),
+                    evidence = hotspot.evidence,
+                )
+            }
         }
 
         facts["lines read"] = if (stats.truncated) "${stats.lines} (stopped at the cap)" else stats.lines.toString()

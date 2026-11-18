@@ -543,6 +543,36 @@ object LogRules {
         fix = "Set initial -XX:MetaspaceSize to avoid runtime expansion pauses (e.g. 512M), avoid server reloads, and configure script engines to reuse compiled classes.",
     )
 
+    val NETTY_DIRECT_BYTEBUF_LEAK = Rule(
+        id = "L039",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Netty ResourceLeakDetector or Native Memory Tracking shows unreleased DirectByteBuffer off-heap leak",
+        rationale = "Custom packet listeners and Netty ChannelHandlers that slice, retain, or allocate pooled direct ByteBuf instances without calling ReferenceCountUtil.release leak native off-heap memory outside -Xmx. Netty's ResourceLeakDetector records recent touch hints and allocation frames before native RSS exhausts MaxDirectMemorySize or triggers container OOM kills.",
+        provenance = "io.netty.util.ResourceLeakDetector, io.netty.buffer.PooledByteBufAllocator, and OpenJDK HotSpot VM.native_memory",
+        fix = "Ensure every custom Netty ChannelInboundHandler, ByteToMessageDecoder, or packet-listener callback releases unforwarded ByteBuf instances inside a try/finally block via ReferenceCountUtil.release, and run with -Dio.netty.leakDetection.level=ADVANCED while verifying the fix.",
+    )
+
+    val PAPER_CHUNK_TICKET_LEAK = Rule(
+        id = "L040",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Paper 26.3 Moonrise chunk system shows persistent plugin chunk ticket or force-loaded chunk leak",
+        rationale = "Paper and Folia's Moonrise ChunkHolderManager keeps chunks loaded and entity-ticking whenever a plugin_ticket, forced ticket, or portal/ender_pearl ticket holds ticket level 31 or 32, propagating load levels across neighbouring chunks. Unremoved addPluginChunkTicket or setForceLoaded calls pin hundreds of chunks and their entities in memory even when zero players are online.",
+        provenance = "PaperMC/Paper ca.spottedleaf.moonrise.patches.chunk_system.scheduling.ChunkHolderManager, TicketType, and org.bukkit.World.addPluginChunkTicket",
+        fix = "Call removePluginChunkTicket or removePluginChunkTickets(plugin) when temporary tasks, arenas, or teleports finish, audit force-loaded chunks per world, and avoid holding persistent level-31 tickets across unloaded regions.",
+    )
+
+    val JFR_ASYNC_PROFILER_LOCK_CONTENTION = Rule(
+        id = "L041",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "JFR or async-profiler wall-clock profile shows severe tick-thread monitor or lock contention",
+        rationale = "CPU-only execution profilers miss threads parked off-CPU waiting on synchronized monitors or java.util.concurrent locks. JDK Flight Recorder jdk.JavaMonitorEnter and jdk.ThreadPark events and async-profiler lock/wall-clock profiles expose exact blocked durations and lock-inversion convoys where a Server thread or Folia TickRegionThread stalls waiting on an async worker or Netty I/O thread.",
+        provenance = "OpenJDK JFR jdk.JavaMonitorEnter and jdk.ThreadPark events, and async-profiler lock profiling",
+        fix = "Eliminate shared synchronized locks and contended ReentrantLocks between tick threads and async workers, replace coarse caches with ConcurrentHashMap or immutable snapshots, and never hold a lock across database, disk, or network I/O.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -582,5 +612,8 @@ object LogRules {
         G1GC_CONCURRENT_MARK_OR_TO_SPACE_EXHAUSTION,
         GENERATIONAL_ZGC_ALLOCATION_STALL_OR_RATE_SPIKE,
         GC_PAUSE_JITTER_AND_METASPACE_EXPANSION,
+        NETTY_DIRECT_BYTEBUF_LEAK,
+        PAPER_CHUNK_TICKET_LEAK,
+        JFR_ASYNC_PROFILER_LOCK_CONTENTION,
     )
 }
