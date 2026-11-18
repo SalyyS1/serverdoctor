@@ -503,6 +503,46 @@ object LogRules {
             "when scheduling delayed EntityScheduler tasks, and batch cross-region task dispatches.",
     )
 
+    val JVM_HEAP_HISTO_PLUGIN_RETENTION = Rule(
+        id = "L035",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "JVM heap histogram (jmap -histo) attributes dominant live memory or instance leak to a plugin class or classloader",
+        rationale = "Heap histograms (jmap -histo, jcmd GC.class_histogram, or Spark heap summaries) record live instance counts and byte sizes by class name. When a single non-primitive plugin class or plugin classloader retains more than 20 percent of total live heap or accumulates more than 100,000 instances, it identifies an uncollected memory leak (unbounded cache, static collection, uncancelled listener, or classloader retention) that degrades garbage collection until OutOfMemoryError occurs.",
+        provenance = "JDK jmap -histo output, JVM ClassHistogram, and CraftChatMessage/PluginClassLoader retention",
+        fix = "Audit the named plugin's static collections, clear caches on world unload, unregister event listeners and tasks on disable, and eliminate references held across plugin reloads.",
+    )
+
+    val G1GC_CONCURRENT_MARK_OR_TO_SPACE_EXHAUSTION = Rule(
+        id = "L036",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "G1GC log records concurrent cycle pause spike, humongous allocation fragmentation, or to-space exhaustion",
+        rationale = "Unified JVM GC logging (-Xlog:gc*) for the Garbage-First (G1) collector reports pause durations, evacuation phases, and humongous allocations. When logs record 'To-space exhausted' (Evacuation Failure), Humongous allocations exceeding 50 percent of the G1 region size that force premature concurrent cycles, or concurrent mark pauses exceeding 50ms (one Minecraft tick), tick threads stall and memory fragmentation prevents survivor copying.",
+        provenance = "OpenJDK HotSpot G1CollectedHeap.cpp, G1ParScanThreadState.cpp, and -Xlog:gc* unified tags",
+        fix = "Increase -XX:G1HeapRegionSize (e.g. 8m, 16m, or 32m) to prevent humongous allocations from fragmenting the heap, ensure -XX:InitiatingHeapOccupancyPercent (IHOP) starts concurrent marking early, and ensure adequate heap headroom.",
+    )
+
+    val GENERATIONAL_ZGC_ALLOCATION_STALL_OR_RATE_SPIKE = Rule(
+        id = "L037",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Generational ZGC log records allocation stall, worker thread preemption, or young-generation rate spike",
+        rationale = "Generational ZGC (JDK 21+) provides sub-millisecond pauses under normal allocation rates. When unified GC logs show 'Allocation Stall' pauses where mutator threads freeze waiting for GC workers to free pages, or the young-generation allocation rate outpaces concurrent collection, tick threads pause unpredictably and TPS collapses.",
+        provenance = "OpenJDK HotSpot Generational ZGC zGeneration.cpp, zAllocationStall.cpp, and -Xlog:gc* tags",
+        fix = "Allocate more heap headroom, increase -XX:ConcGCThreads to give concurrent workers more CPU time, or reduce excessive per-tick object churn in the identified plugin.",
+    )
+
+    val GC_PAUSE_JITTER_AND_METASPACE_EXPANSION = Rule(
+        id = "L038",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Unified GC log records Metaspace expansion pauses, class unloading pauses, or concurrent phase jitter",
+        rationale = "Frequent 'Metadata GC Threshold' triggers, CompressedClassSpace expansion pauses, or class unloading STW phases occur when dynamic bytecode generation, scripting runtimes, or repeated /reload commands allocate transient classloaders, causing non-heap pauses and cache invalidations.",
+        provenance = "OpenJDK HotSpot Metaspace.cpp, SystemDictionary.cpp, and -Xlog:gc,metaspace* tags",
+        fix = "Set initial -XX:MetaspaceSize to avoid runtime expansion pauses (e.g. 512M), avoid server reloads, and configure script engines to reuse compiled classes.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -538,5 +578,9 @@ object LogRules {
         SPARK_ASYNC_POOL_SATURATION,
         FOLIA_CROSS_REGION_AFFINITY_MISMATCH,
         FOLIA_SCHEDULER_TASK_EXCEPTION_OR_BACKLOG,
+        JVM_HEAP_HISTO_PLUGIN_RETENTION,
+        G1GC_CONCURRENT_MARK_OR_TO_SPACE_EXHAUSTION,
+        GENERATIONAL_ZGC_ALLOCATION_STALL_OR_RATE_SPIKE,
+        GC_PAUSE_JITTER_AND_METASPACE_EXPANSION,
     )
 }

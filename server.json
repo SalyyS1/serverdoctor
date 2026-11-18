@@ -1,8 +1,8 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/server.schema.json",
   "name": "io.github.SalyyS1/serverdoctor",
-  "description": "Offline diagnostic auditor and 10-tool MCP server for Minecraft Paper and Folia logs, Spark flamegraphs, JVM flags, and server configs.",
-  "version": "0.7.0",
+  "description": "Offline diagnostic auditor and 11-tool MCP server for Minecraft Paper and Folia logs, Spark flamegraphs, JVM flags, and server configs.",
+  "version": "0.8.0",
   "repository": {
     "url": "https://github.com/SalyyS1/serverdoctor",
     "source": "github"

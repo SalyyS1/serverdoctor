@@ -9,6 +9,7 @@ import com.salyvn.serverdoctor.cli.ConfigCommand
 import com.salyvn.serverdoctor.cli.CrashCommand
 import com.salyvn.serverdoctor.cli.DiffCommand
 import com.salyvn.serverdoctor.cli.FlagsCommand
+import com.salyvn.serverdoctor.cli.GcCommand
 import com.salyvn.serverdoctor.cli.LogCommand
 import com.salyvn.serverdoctor.cli.McpCommand
 import com.salyvn.serverdoctor.cli.PermsCommand
@@ -48,6 +49,7 @@ fun main(args: Array<String>) = ServerDoctorCommand()
         CrashCommand(),
         PermsCommand(),
         DiffCommand(),
+        GcCommand(),
         McpCommand(),
         RulesCommand(),
     )

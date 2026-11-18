@@ -866,5 +866,65 @@ object LogDetectors {
                 evidence = hit.evidence,
             )
         },
+
+        Signature(LogRules.JVM_HEAP_HISTO_PLUGIN_RETENTION) { event, plugins ->
+            val text = event.fullText
+            if (!text.contains("class name", ignoreCase = true) && !text.contains("instances", ignoreCase = true) && !text.contains("jmap -histo", ignoreCase = true)) return@Signature null
+            val report = JvmGcAndHeapAnalyzer.analyzeHeapHistogram(text, plugins)
+            val leak = report.flaggedLeaks.firstOrNull() ?: return@Signature null
+            val pluginText = if (leak.blamedPlugin != null) " attributable to plugin '${leak.blamedPlugin}'" else ""
+            DetectorMatch(
+                discriminator = "heap-histo@${leak.blamedPlugin ?: leak.className}",
+                detail = "JVM heap histogram shows dominant plugin memory retention: class '${leak.className}' retains ${JvmGcAndHeapAnalyzer.formatBytes(leak.bytes)} (${String.format(java.util.Locale.ROOT, "%.1f", leak.percentageOfHeap * 100)}% of live heap across ${leak.instances} instances)$pluginText.",
+                evidence = listOf("#instances: ${leak.instances}, #bytes: ${leak.bytes} (${JvmGcAndHeapAnalyzer.formatBytes(leak.bytes)})", "class: ${leak.className}"),
+            )
+        },
+
+        Signature(LogRules.G1GC_CONCURRENT_MARK_OR_TO_SPACE_EXHAUSTION) { event, _ ->
+            val text = event.fullText
+            val isToSpace = text.contains("To-space exhausted", ignoreCase = true) || text.contains("evacuation failure", ignoreCase = true)
+            val isHumongous = text.contains("Humongous allocation", ignoreCase = true)
+            if (!isToSpace && !isHumongous) return@Signature null
+            val kind = if (isToSpace) "to-space-exhausted" else "humongous-allocation"
+            DetectorMatch(
+                discriminator = "g1gc-$kind",
+                detail = if (isToSpace) {
+                    "G1GC log records evacuation failure (to-space exhausted) causing JVM thread pauses: ${event.message.trim().take(120)}."
+                } else {
+                    "G1GC log records humongous allocations exceeding 50% of region size, fragmenting heap: ${event.message.trim().take(120)}."
+                },
+                evidence = listOf(event.message.trim()),
+            )
+        },
+
+        Signature(LogRules.GENERATIONAL_ZGC_ALLOCATION_STALL_OR_RATE_SPIKE) { event, _ ->
+            val text = event.fullText
+            val match = ZGC_STALL.find(text)
+            val isRateSpike = text.contains("Allocation rate high", ignoreCase = true) || text.contains("Garbage Collection (Allocation Rate)", ignoreCase = true)
+            if (match == null && !isRateSpike) return@Signature null
+            val threadName = match?.groupValues?.get(1) ?: "worker"
+            val stallMs = match?.groupValues?.get(2)
+            DetectorMatch(
+                discriminator = "zgc-alloc-stall@$threadName",
+                detail = if (match != null) {
+                    "Generational ZGC log records mutator thread allocation stall: thread \"$threadName\" stalled for ${stallMs} ms waiting for free heap pages."
+                } else {
+                    "Generational ZGC log records young generation allocation rate spike outpacing concurrent collection: ${event.message.trim().take(120)}."
+                },
+                evidence = listOf(event.message.trim()),
+            )
+        },
+
+        Signature(LogRules.GC_PAUSE_JITTER_AND_METASPACE_EXPANSION) { event, _ ->
+            val text = event.fullText
+            val isMeta = text.contains("Metadata GC Threshold", ignoreCase = true) ||
+                (text.contains("Metaspace", ignoreCase = true) && text.contains("CompressedClassSpace", ignoreCase = true))
+            if (!isMeta) return@Signature null
+            DetectorMatch(
+                discriminator = "gc-metaspace-expansion",
+                detail = "Unified GC log records Metaspace expansion or class unloading threshold pause: ${event.message.trim().take(120)}.",
+                evidence = listOf(event.message.trim()),
+            )
+        },
     )
 }

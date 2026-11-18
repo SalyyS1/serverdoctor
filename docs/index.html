@@ -541,6 +541,10 @@
         L032: { sev: "warning", title: "Spark profiler shows async scheduler worker pool saturation, connection starvation, or lock convoy", fix: "Size HikariCP maximumPoolSize within database limits with explicit connection/socket timeouts and remove shared async locks.", prov: "lucko/spark async profiles, FoliaAsyncScheduler & HikariPool" },
         L033: { sev: "critical", title: "Folia scheduler trace shows cross-context thread affinity violation (Global, Region, Entity, or Async)", fix: "Dispatch entity work via entity.getScheduler().run(plugin, task, retired), block/chunk work via RegionScheduler.execute(plugin, location, task), and reserve GlobalRegionScheduler for global rules.", prov: "PaperMC/Folia FoliaGlobalRegionScheduler, FoliaRegionScheduler, EntityScheduler & FoliaAsyncScheduler" },
         L034: { sev: "warning", title: "Folia scheduled task threw an uncaught exception or RegionizedTaskQueue reported backlog", fix: "Fix the named plugin callback in the Folia scheduler trace, supply a retired callback on EntityScheduler, and batch cross-region tasks.", prov: "PaperMC/Folia EntityScheduler, RegionizedTaskQueue & ThreadedRegionizer" },
+        L035: { sev: "critical", title: "JVM heap histogram (jmap -histo) attributes dominant live memory or instance leak to a plugin class or classloader", fix: "Audit the named plugin's static collections, clear caches on world unload, and unregister listeners on disable.", prov: "JDK jmap -histo output & JVM ClassHistogram" },
+        L036: { sev: "critical", title: "G1GC log records concurrent cycle pause spike, humongous allocation fragmentation, or to-space exhaustion", fix: "Increase -XX:G1HeapRegionSize (e.g. 16m or 32m) and ensure adequate heap headroom.", prov: "OpenJDK HotSpot G1CollectedHeap & -Xlog:gc* unified tags" },
+        L037: { sev: "critical", title: "Generational ZGC log records allocation stall, worker thread preemption, or young-generation rate spike", fix: "Allocate more heap headroom, increase -XX:ConcGCThreads, and optimize high-churn plugin allocations.", prov: "OpenJDK HotSpot Generational ZGC zGeneration & zAllocationStall" },
+        L038: { sev: "warning", title: "Unified GC log records Metaspace expansion pauses, class unloading pauses, or concurrent phase jitter", fix: "Set initial -XX:MetaspaceSize=512M to avoid runtime expansion pauses and avoid plugin /reload commands.", prov: "OpenJDK HotSpot Metaspace & SystemDictionary" },
         F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
         F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
         F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
@@ -855,6 +859,35 @@
             addGrouped("L034", "folia-sched-fault@" + (blame || lineNo), lineNo, "Folia scheduled task fault or ThreadedRegionizer merge pressure: " + line.trim().slice(0, 130) + (blame ? (" (" + blame + ")") : "") + ".", block.slice(0, 3));
             i = j - 1;
             continue;
+          }
+
+          if (/jmap -histo|^\s*\d+:\s+\d+\s+\d+\s+[a-zA-Z0-9_$.\[]+/m.test(full)) {
+            const histoMatch = /^\s*(\d+):\s+(\d+)\s+(\d+)\s+([a-zA-Z0-9_$.\[]+)/m.exec(full);
+            if (histoMatch) {
+              const cls = histoMatch[4];
+              const inst = histoMatch[2];
+              const b = histoMatch[3];
+              addGrouped("L035", "heap-histo@" + cls, lineNo, "JVM heap histogram shows dominant memory retention: class '" + cls + "' retains " + b + " bytes across " + inst + " instances.", block.slice(0, 3));
+            }
+          }
+
+          if (/To-space exhausted|G1 Evacuation Pause|Humongous allocation/i.test(full)) {
+            const isToSpace = /To-space exhausted|evacuation failure/i.test(full);
+            const disc = isToSpace ? "g1gc-to-space-exhausted" : "g1gc-humongous-allocation";
+            const detail = isToSpace ? "G1GC log records evacuation failure (to-space exhausted) causing JVM thread pauses: " + line.trim().slice(0, 130) + "." : "G1GC log records humongous allocations exceeding 50% of region size, fragmenting heap: " + line.trim().slice(0, 130) + ".";
+            addGrouped("L036", disc, lineNo, detail, block.slice(0, 3));
+          }
+
+          if (/Allocation Stall\s+\(([^)]+)\)\s+([\d.,]+)ms|Garbage Collection \(Allocation Rate\)/i.test(full)) {
+            const stallMatch = /Allocation Stall\s+\(([^)]+)\)\s+([\d.,]+)ms/i.exec(full);
+            const threadName = stallMatch ? stallMatch[1] : "worker";
+            const stallMs = stallMatch ? stallMatch[2] : "";
+            const detail = stallMatch ? "Generational ZGC log records mutator thread allocation stall: thread \"" + threadName + "\" stalled for " + stallMs + " ms waiting for free heap pages." : "Generational ZGC log records young generation allocation rate spike: " + line.trim().slice(0, 130) + ".";
+            addGrouped("L037", "zgc-alloc-stall@" + threadName, lineNo, detail, block.slice(0, 3));
+          }
+
+          if (/Metadata GC Threshold|Metaspace:\s*\d+M->\d+M/i.test(full)) {
+            addGrouped("L038", "gc-metaspace-expansion", lineNo, "Unified GC log records Metaspace expansion or class unloading threshold pause: " + line.trim().slice(0, 130) + ".", block.slice(0, 3));
           }
 
           if (full.includes("Must use teleportAsync while in region threading") ||

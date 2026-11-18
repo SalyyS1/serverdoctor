@@ -44,6 +44,7 @@ object ToolCatalog {
     fun tools(): List<McpTool> = listOf(
         LogTool,
         SparkProfileTool,
+        GcLogTool,
         ConfigTool,
         FlagsTool,
         PluginsTool,
@@ -344,6 +345,40 @@ object ToolCatalog {
             if (!Files.isDirectory(a)) return missing("Directory", left)
             if (!Files.isDirectory(b)) return missing("Directory", right)
             return render(listOf(ServerDiff().compare(ServerSnapshot.read(a), ServerSnapshot.read(b))))
+        }
+    }
+
+    private object GcLogTool : McpTool {
+        override val name = "analyze_gc_log"
+        override val title = "Analyze JVM garbage collection logs and heap histograms"
+        override val description =
+            "Analyze unified HotSpot GC logs (-Xlog:gc* for G1GC and Generational ZGC) and " +
+                "heap histograms (jmap -histo) to detect memory leaks, to-space exhaustion, " +
+                "allocation stalls, and metaspace thrashing with plugin retention attribution."
+        override val inputSchema = McpServer.objectSchema(
+            required = listOf("path"),
+            properties = mapOf(
+                "path" to ("string" to "Absolute path to GC log or combined server log file"),
+                "histo_path" to ("string" to "Optional absolute path to jmap -histo output file"),
+                "plugins_dir" to ("string" to "Optional absolute path to plugins directory for attribution"),
+            ),
+        )
+
+        override fun call(arguments: JsonObject): ToolResult {
+            val path = argument(arguments, "path") ?: return ToolResult("No path given", isError = true)
+            val file = Path.of(path)
+            if (!Files.isRegularFile(file)) return missing("GC log", path)
+            val histoFile = argument(arguments, "histo_path")?.let { Path.of(it) }
+            if (histoFile != null && !Files.isRegularFile(histoFile)) return missing("Heap histogram", histoFile.toString())
+            val index = argument(arguments, "plugins_dir")
+                ?.let { PluginIndex.read(Path.of(it)) }
+                ?: PluginIndex.EMPTY
+            val report = com.salyvn.serverdoctor.log.JvmGcAndHeapAnalyzer.diagnose(
+                source = LogSource.of(file),
+                plugins = index,
+                histoSource = histoFile?.let { LogSource.of(it) },
+            )
+            return render(listOf(report))
         }
     }
 

@@ -100,6 +100,9 @@ java -jar serverdoctor.jar log logs/2026-08-24-1.log.gz
 # An offline Spark text call-tree, collapsed flamegraph (.folded), or JSON sampler export
 java -jar serverdoctor.jar spark spark-tree.txt --plugins /srv/mc/plugins --mappings server.txt
 
+# Unified JVM GC log (-Xlog:gc*) and heap histogram (jmap -histo) leak diagnosis
+java -jar serverdoctor.jar gc gc.log --histo heap.histo --plugins /srv/mc/plugins
+
 # Configuration, judged across files
 java -jar serverdoctor.jar config /srv/mc
 
@@ -204,7 +207,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: SalyyS1/serverdoctor@v0.7.0
+      - uses: SalyyS1/serverdoctor@v0.8.0
         with:
           target: ./server
           mode: scan
@@ -446,7 +449,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-123 rules across the nine audits. Every `source:` line names a file and line in Paper or
+127 rules across the ten audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 
