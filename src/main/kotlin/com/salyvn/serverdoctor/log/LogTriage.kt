@@ -254,6 +254,54 @@ class LogTriage(
             }
         }
 
+        val incidentTextBuilder = StringBuilder()
+        source.forEachLine(limit = 30_000) { line ->
+            if (incidentTextBuilder.isNotEmpty()) incidentTextBuilder.append('\n')
+            incidentTextBuilder.append(line.text)
+        }
+        val rawIncidentText = incidentTextBuilder.toString()
+        if (rawIncidentText.isNotEmpty()) {
+            val loomReport = IncidentTimelineCorrelator.analyzeLoomPinning(rawIncidentText, plugins)
+            for (inc in loomReport.incidents) {
+                record(
+                    rule = LogRules.VIRTUAL_THREAD_CARRIER_PINNING,
+                    discriminator = "loom-pin@${inc.mechanism.name}:${inc.monitorFrame ?: inc.blockingOperation}",
+                    line = inc.line,
+                    detail = IncidentTimelineCorrelator.formatLoomDetail(inc),
+                    evidence = inc.evidence,
+                )
+            }
+            val dbReport = IncidentTimelineCorrelator.analyzeDbStarvation(rawIncidentText, plugins)
+            for (inc in dbReport.incidents) {
+                record(
+                    rule = LogRules.DB_POOL_OR_SQLITE_WAL_STARVATION,
+                    discriminator = "db-starve@${inc.kind.name}:${inc.poolOrDbName}",
+                    line = inc.line,
+                    detail = IncidentTimelineCorrelator.formatDbDetail(inc),
+                    evidence = inc.evidence,
+                )
+            }
+            for (hostInc in IncidentTimelineCorrelator.analyzeHostPressure(rawIncidentText)) {
+                record(
+                    rule = LogRules.LINUX_CGROUP_THROTTLE_OR_SWAP_PRESSURE,
+                    discriminator = "host-pressure@${hostInc.kind.name}",
+                    line = hostInc.line,
+                    detail = hostInc.metricSummary,
+                    evidence = hostInc.evidence,
+                )
+            }
+            val sourceLabel = source.path.fileName?.toString() ?: "log"
+            for (cascade in IncidentTimelineCorrelator.correlateSignals(listOf(sourceLabel to rawIncidentText), plugins)) {
+                record(
+                    rule = LogRules.CAUSAL_INCIDENT_CASCADE,
+                    discriminator = "cascade@${cascade.rootSignal.ruleHint}->${cascade.symptomSignal.ruleHint}:${cascade.blamedPlugin ?: "server"}",
+                    line = cascade.symptomSignal.line,
+                    detail = cascade.chainSummary,
+                    evidence = cascade.evidence,
+                )
+            }
+        }
+
         facts["lines read"] = if (stats.truncated) "${stats.lines} (stopped at the cap)" else stats.lines.toString()
         facts["log entries"] = stats.events.toString()
         stats.dominantFormat?.let { facts["line format"] = it }

@@ -22,6 +22,7 @@ folder, offline, on the same box that produced it.
 | `spark` | Which tick-thread hotspot category and plugin frame dominate an offline Spark text call-tree, collapsed flamegraph, or JSON sampler export? |
 | `gc` | Which plugin retains live heap in `jmap -histo`, and do `-Xlog:gc*` logs show G1GC to-space exhaustion, ZGC allocation stalls, or Metaspace pauses? |
 | `contention` | Are Netty `DirectByteBuffer` instances leaking off-heap, are Paper 26.3 chunk tickets pinning unloaded worlds, or is a tick thread stalled on contended JFR / `async-profiler` locks? |
+| `diagnose-incident` | Did Project Loom virtual threads pin their carrier pool (`L042`), did HikariCP or SQLite WAL locks starve persistence (`L043`), did Linux cgroup CPU throttling or swap freeze the JVM (`L044`), and which upstream fault triggered the downstream watchdog stall (`L045`)? |
 | `config` | Is this server exposed or misconfigured - judged across `server.properties`, `bukkit.yml`, `spigot.yml` and the Paper configs together, not one file at a time? |
 | `flags` | Do the JVM flags in the start script do what whoever wrote them thought? |
 | `plugins` | What is installed, what is broken about the set, and where did each jar come from? |
@@ -107,6 +108,9 @@ java -jar serverdoctor.jar gc gc.log --histo heap.histo --plugins /srv/mc/plugin
 
 # Netty DirectByteBuffer native leaks, Paper 26.3 chunk tickets, and JFR / async-profiler lock contention
 java -jar serverdoctor.jar contention jfr-locks.txt --plugins /srv/mc/plugins
+
+# Correlate Loom carrier pinning, HikariCP/SQLite starvation, Linux cgroup throttling, and causal outage cascades
+java -jar serverdoctor.jar diagnose-incident logs/latest.log --gc-log gc.log --jfr host-jfr.txt --plugins /srv/mc/plugins
 
 # Configuration, judged across files
 java -jar serverdoctor.jar config /srv/mc
@@ -212,7 +216,7 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
-      - uses: SalyyS1/serverdoctor@v0.9.0
+      - uses: SalyyS1/serverdoctor@v1.0.0
         with:
           target: ./server
           mode: scan
@@ -423,9 +427,10 @@ Stated plainly, because a tool that reports nothing looks the same as a tool tha
 ## With an AI agent
 
 `serverdoctor mcp` speaks the Model Context Protocol over stdio, exposing `triage_log`,
-`analyze_spark_profile`, `analyze_gc_log`, `analyze_memory_and_contention`, `audit_config`, `audit_jvm_flags`,
-`audit_plugins`, `audit_worlds`, `read_crash_reports`, `audit_access_lists`, `diff_servers` and `list_rules`.
-All twelve are read-only and return the JSON report. For a client that reads the usual config file:
+`analyze_spark_profile`, `analyze_gc_log`, `analyze_memory_and_contention`, `correlate_incident_timeline`,
+`audit_config`, `audit_jvm_flags`, `audit_plugins`, `audit_worlds`, `read_crash_reports`,
+`audit_access_lists`, `diff_servers` and `list_rules`.
+All thirteen are read-only and return the JSON report. For a client that reads the usual config file:
 
 ```json
 {
@@ -454,7 +459,7 @@ $ java -jar serverdoctor.jar rules --area flags
       source: PaperMC/Paper paper-server/src/main/java/org/spigotmc/WatchdogThread.java:16
 ```
 
-130 rules across the eleven audits. Every `source:` line names a file and line in Paper or
+134 rules across the twelve audits. Every `source:` line names a file and line in Paper or
 Folia, a JEP, an API response that was checked, or the file on disk the fact was read from, and the
 whole catalogue is in [`docs/rules.md`](docs/rules.md).
 

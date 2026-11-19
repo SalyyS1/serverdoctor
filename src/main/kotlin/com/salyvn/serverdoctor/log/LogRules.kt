@@ -573,6 +573,46 @@ object LogRules {
         fix = "Eliminate shared synchronized locks and contended ReentrantLocks between tick threads and async workers, replace coarse caches with ConcurrentHashMap or immutable snapshots, and never hold a lock across database, disk, or network I/O.",
     )
 
+    val VIRTUAL_THREAD_CARRIER_PINNING = Rule(
+        id = "L042",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Project Loom virtual thread pinned its ForkJoinPool carrier platform thread",
+        rationale = "Plugins using Java 21+ virtual threads (Thread.ofVirtual) share a bounded ForkJoinPool of platform carrier threads sized to CPU cores. Entering a synchronized monitor (<== monitors:1) or native frame while blocking on JDBC, network sockets, or disk I/O pins the underlying carrier thread so it cannot unmount and schedule other virtual threads, starving async tasks across the server.",
+        provenance = "OpenJDK JEP 444 Virtual Threads (-Djdk.tracePinnedThreads and JFR jdk.VirtualThreadPinned)",
+        fix = "Replace synchronized blocks around blocking JDBC, HTTP, or file I/O with java.util.concurrent.locks.ReentrantLock, upgrade JDBC drivers to Loom-safe versions, or run on JDK 24+ where JEP 491 unpins object monitors.",
+    )
+
+    val DB_POOL_OR_SQLITE_WAL_STARVATION = Rule(
+        id = "L043",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "HikariCP connection pool exhaustion or SQLite WAL lock starvation stalled persistence",
+        rationale = "When every connection in a HikariCP pool is active and threads queue up until connectionTimeout expires, or when concurrent writers hit SQLITE_BUSY / uncheckpointed WAL lock contention, persistence callbacks stall. If a plugin checks out a connection or executes SQL on the Server thread or a Folia TickRegionThread, the entire region freezes until the timeout elapses.",
+        provenance = "brettwooldridge/HikariCP HikariPool.createTimeoutException, PoolStats, and SQLite SQLITE_BUSY / WAL checkpointing",
+        fix = "Move all database queries onto AsyncScheduler, close JDBC Connections inside try-with-resources blocks, enable PRAGMA journal_mode=WAL and busy_timeout=5000 for SQLite, or switch multi-writer workloads to MariaDB/PostgreSQL with bounded pool sizes.",
+    )
+
+    val LINUX_CGROUP_THROTTLE_OR_SWAP_PRESSURE = Rule(
+        id = "L044",
+        area = RuleArea.LOG,
+        severity = Severity.WARNING,
+        title = "Host Linux cgroup CPU CFS throttling, PSI stall, Transparent HugePages compaction, or swap pressure",
+        rationale = "Containerized Minecraft hosts enforce CPU quotas via Linux cgroup cpu.max / CFS bandwidth periods. High nr_throttled ratios, Linux Pressure Stall Information (PSI) CPU/memory/IO stalls, Transparent HugePages [always] khugepaged compaction pauses, or active JVM swap-out (VmSwap) freeze every JVM thread simultaneously from outside Java without leaving plugin frames.",
+        provenance = "Linux Kernel Documentation admin-guide/cgroup-v2.rst (cpu.stat, memory.events), PSI (/proc/pressure), and transhuge.rst",
+        fix = "Raise container CPU quota limits or lower -XX:ParallelGCThreads / Folia region threads to match allocated vCPUs, set Transparent HugePages to madvise, disable swap or lower vm.swappiness, and keep -Xmx + native overhead within container memory limits.",
+    )
+
+    val CAUSAL_INCIDENT_CASCADE = Rule(
+        id = "L045",
+        area = RuleArea.LOG,
+        severity = Severity.CRITICAL,
+        title = "Cross-signal causal timeline correlates upstream root cause with downstream tick or watchdog stall",
+        rationale = "During a server outage, one upstream fault (such as a stop-the-world GC pause, container CPU throttle, HikariCP pool exhaustion, virtual-thread carrier pinning, or async lock convoy) triggers downstream victim symptoms within seconds (tick duration spikes, Netty keepalive timeouts, or Paper/Folia watchdog dumps). Aligning timestamps into a causal chain separates the root cause from downstream victims.",
+        provenance = "PaperMC/Paper WatchdogThread, OpenJDK JEP 158 Unified Logging, JFR event timestamps, and ServerDoctor causal timeline correlation",
+        fix = "Remediate the earliest upstream root-cause node in the reported causal chain first rather than raising watchdog timeouts or tuning downstream victim components.",
+    )
+
     val all: List<Rule> = listOf(
         WATCHDOG_FIRED,
         ASYNC_API_MISUSE,
@@ -615,5 +655,9 @@ object LogRules {
         NETTY_DIRECT_BYTEBUF_LEAK,
         PAPER_CHUNK_TICKET_LEAK,
         JFR_ASYNC_PROFILER_LOCK_CONTENTION,
+        VIRTUAL_THREAD_CARRIER_PINNING,
+        DB_POOL_OR_SQLITE_WAL_STARVATION,
+        LINUX_CGROUP_THROTTLE_OR_SWAP_PRESSURE,
+        CAUSAL_INCIDENT_CASCADE,
     )
 }

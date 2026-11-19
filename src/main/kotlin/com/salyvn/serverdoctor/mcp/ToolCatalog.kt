@@ -46,6 +46,7 @@ object ToolCatalog {
         SparkProfileTool,
         GcLogTool,
         MemoryAndContentionTool,
+        IncidentTimelineTool,
         ConfigTool,
         FlagsTool,
         PluginsTool,
@@ -408,6 +409,45 @@ object ToolCatalog {
             val report = com.salyvn.serverdoctor.log.NativeLeakTicketAndContentionAnalyzer.diagnose(
                 source = LogSource.of(file),
                 plugins = index,
+            )
+            return render(listOf(report))
+        }
+    }
+
+    private object IncidentTimelineTool : McpTool {
+        override val name = "correlate_incident_timeline"
+        override val title = "Diagnose Loom carrier pinning, DB starvation, cgroup throttling, and causal outage cascades"
+        override val description =
+            "Analyze Project Loom virtual thread carrier pinning (-Djdk.tracePinnedThreads and JFR " +
+                "jdk.VirtualThreadPinned, L042), HikariCP connection pool exhaustion and SQLite WAL lock " +
+                "starvation (L043), Linux cgroup CPU CFS throttling, PSI stalls, and swap pressure (L044), " +
+                "and correlate multi-file timestamps into root-cause causal chains (L045)."
+        override val inputSchema = McpServer.objectSchema(
+            required = listOf("path"),
+            properties = mapOf(
+                "path" to ("string" to "Absolute path to primary server log or diagnostic capture"),
+                "gc_log_path" to ("string" to "Optional absolute path to Unified JVM GC log (-Xlog:gc*)"),
+                "jfr_path" to ("string" to "Optional absolute path to JFR print output or host cgroup/PSI capture"),
+                "plugins_dir" to ("string" to "Optional absolute path to plugins directory for attribution"),
+            ),
+        )
+
+        override fun call(arguments: JsonObject): ToolResult {
+            val path = argument(arguments, "path") ?: return ToolResult("No path given", isError = true)
+            val file = Path.of(path)
+            if (!Files.isRegularFile(file)) return missing("Primary log", path)
+            val gcFile = argument(arguments, "gc_log_path")?.let { Path.of(it) }
+            if (gcFile != null && !Files.isRegularFile(gcFile)) return missing("GC log", gcFile.toString())
+            val jfrFile = argument(arguments, "jfr_path")?.let { Path.of(it) }
+            if (jfrFile != null && !Files.isRegularFile(jfrFile)) return missing("JFR or host capture", jfrFile.toString())
+            val index = argument(arguments, "plugins_dir")
+                ?.let { PluginIndex.read(Path.of(it)) }
+                ?: PluginIndex.EMPTY
+            val report = com.salyvn.serverdoctor.log.IncidentTimelineCorrelator.diagnose(
+                primarySource = LogSource.of(file),
+                plugins = index,
+                gcSource = gcFile?.let { LogSource.of(it) },
+                jfrSource = jfrFile?.let { LogSource.of(it) },
             )
             return render(listOf(report))
         }

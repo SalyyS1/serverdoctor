@@ -302,7 +302,7 @@
       </div>
       <nav class="nav-links">
         <a href="https://github.com/SalyyS1/serverdoctor">GitHub Repository</a>
-        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v0.9.0</a>
+        <a href="https://github.com/SalyyS1/serverdoctor/releases">CLI &amp; Action v1.0.0</a>
         <a href="https://salyys1.github.io/foliascan/">FoliaScan</a>
         <a href="https://salyys1.github.io/pluginscope/">PluginScope</a>
         <a href="https://salyys1.github.io/minecraftkit/">MinecraftKit</a>
@@ -318,6 +318,7 @@
           <input id="fileInput" type="file" multiple hidden>
         </div>
         <div class="btn-row">
+          <button type="button" data-preset="v100">Sample: v1.0.0 Loom Pinning + HikariCP + Causal Cascade</button>
           <button type="button" data-preset="v090">Sample: v0.9.0 DirectByteBuf + Chunk Tickets + JFR Lock</button>
           <button type="button" data-preset="v070">Sample: 1.21.4+ Remapper + Folia Affinity + Spark Deobf</button>
           <button type="button" data-preset="folia">Sample: Folia Region Density + Moonrise Stall + Tuning</button>
@@ -352,7 +353,7 @@
     <div class="findings" id="findingsList"></div>
 
     <footer>
-      <div>ServerDoctor v0.9.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
+      <div>ServerDoctor v1.0.0 - Static offline diagnostics for PaperMC and Folia operators.</div>
       <div>Companion tools: <a href="https://github.com/SalyyS1/foliascan">foliascan</a> | <a href="https://github.com/SalyyS1/pluginscope">pluginscope</a> | <a href="https://github.com/SalyyS1/minecraftkit">minecraftkit</a></div>
     </footer>
 
@@ -363,6 +364,27 @@
       "use strict";
 
       const PRESETS = {
+        v100: [
+          {
+            name: "logs/latest.log",
+            text: [
+              "[15:10:00] [ServerMain/INFO]: Starting minecraft server version 26.3",
+              "[15:10:00] [ServerMain/INFO]: This server is running Folia version 26.3-94-main (MC: 26.3)",
+              "[15:12:01.100] [HostMonitor/WARN]: cgroup cpu.stat nr_periods 2000 nr_throttled 540 throttled_usec 28400000",
+              "[15:12:01.420] [VirtualThread-42/WARN]: Thread[#94,ForkJoinPool-1-worker-2,5,CarrierThreads]",
+              "    java.base/java.lang.VirtualThread$VThreadContinuation.onPinned(VirtualThread.java:185)",
+              "    com.mysql.cj.jdbc.ConnectionImpl.execSQL(ConnectionImpl.java:2024) <== monitors:1",
+              "    com.example.vaultsync.SqlPlayerDao.loadProfile(SqlPlayerDao.java:91)",
+              "[15:12:02.050] [Region Scheduler Thread #1/ERROR]: SQLTransientConnectionException: VaultSync-Pool - Connection is not available, request timed out after 3000ms.",
+              "\tat com.zaxxer.hikari.pool.HikariPool.createTimeoutException(HikariPool.java:696)",
+              "\tat com.example.vaultsync.SqlPlayerDao.saveSync(SqlPlayerDao.java:118)",
+              "[15:12:03.200] [Folia Region Watchdog/ERROR]: --- DO NOT REPORT THIS TO FOLIA - THIS IS NOT A BUG OR A CRASH ---",
+              "[15:12:03.200] [Folia Region Watchdog/ERROR]: Tick region (8, -4) has not responded for 15.1 seconds!",
+              "[15:12:03.200] [Folia Region Watchdog/ERROR]: \tat com.zaxxer.hikari.pool.HikariPool.getConnection(HikariPool.java:181)",
+              "[15:12:03.200] [Folia Region Watchdog/ERROR]: \tat com.example.vaultsync.SqlPlayerDao.saveSync(SqlPlayerDao.java:118)"
+            ].join("\n")
+          }
+        ],
         v090: [
           {
             name: "logs/latest.log",
@@ -577,6 +599,10 @@
         L039: { sev: "critical", title: "Netty ResourceLeakDetector or Native Memory Tracking shows unreleased DirectByteBuffer off-heap leak", fix: "Release unforwarded ByteBuf slices inside a try/finally via ReferenceCountUtil.release and verify with -Dio.netty.leakDetection.level=ADVANCED.", prov: "io.netty.util.ResourceLeakDetector & OpenJDK HotSpot VM.native_memory" },
         L040: { sev: "warning", title: "Paper 26.3 Moonrise chunk system shows persistent plugin chunk ticket or force-loaded chunk leak", fix: "Call removePluginChunkTicket or removePluginChunkTickets(plugin) when temporary tasks or arenas complete.", prov: "PaperMC/Paper ChunkHolderManager, TicketType & World.addPluginChunkTicket" },
         L041: { sev: "critical", title: "JFR or async-profiler wall-clock profile shows severe tick-thread monitor or lock contention", fix: "Eliminate shared synchronized locks between tick threads and async workers; use ConcurrentHashMap or immutable snapshots.", prov: "OpenJDK JFR jdk.JavaMonitorEnter / jdk.ThreadPark & async-profiler lock profiling" },
+        L042: { sev: "critical", title: "Project Loom virtual thread pinned its ForkJoinPool carrier platform thread", fix: "Replace synchronized blocks around JDBC, HTTP, or file I/O with ReentrantLock, upgrade JDBC drivers, or run on JDK 24+ (JEP 491).", prov: "OpenJDK JEP 444 Virtual Threads (-Djdk.tracePinnedThreads & JFR jdk.VirtualThreadPinned)" },
+        L043: { sev: "critical", title: "HikariCP connection pool exhaustion or SQLite WAL lock starvation stalled persistence", fix: "Move all database queries onto AsyncScheduler, close Connections in try-with-resources, and enable SQLite WAL + busy_timeout=5000.", prov: "HikariCP HikariPool.createTimeoutException / PoolStats & SQLite SQLITE_BUSY" },
+        L044: { sev: "warning", title: "Host Linux cgroup CPU CFS throttling, PSI stall, Transparent HugePages compaction, or swap pressure", fix: "Raise container CPU limits or match JVM/Folia thread counts to vCPU quota, set THP to madvise, and avoid JVM swap.", prov: "Linux Kernel cgroup-v2 cpu.stat, /proc/pressure PSI, & transhuge" },
+        L045: { sev: "critical", title: "Cross-signal causal timeline correlates upstream root cause with downstream tick or watchdog stall", fix: "Remediate the earliest upstream root-cause node in the causal chain first instead of tuning downstream victim timeouts.", prov: "ServerDoctor v1.0.0 temporal sliding-window causal timeline correlator" },
         F001: { sev: "warning", title: "-Xms and -Xmx differ", fix: "Set -Xms equal to -Xmx to prevent runtime heap resizing pauses.", prov: "PaperMC/docs aikars-flags.md:67" },
         F003: { sev: "critical", title: "The watchdog is switched off", fix: "Remove -Ddisable.watchdog so hung ticks produce thread dumps.", prov: "PaperMC/Paper WatchdogThread.java:16" },
         F006: { sev: "warning", title: "Flags for a collector that no longer exists", fix: "Remove CMS flags removed in JDK 14 (JEP 363).", prov: "JEP 363" },
@@ -977,6 +1003,44 @@
             }
           }
 
+          if (/Thread\[#?\d*,\s*[^\]]*(?:ForkJoinPool|Carrier|VirtualThread)/i.test(line) || /^\s*jdk\.VirtualThreadPinned\s*\{\s*$/.test(line) || line.includes("<== monitors:")) {
+            const pinSlice = lines.slice(i, Math.min(lines.length, i + 12));
+            const monFrame = pinSlice.find(l => l.includes("<== monitors:")) || pinSlice.find(l => /\([A-Za-z0-9_]+\.java:\d+\)/.test(l)) || line;
+            const foreignPin = pinSlice.map(l => {
+              const m = l.match(/([a-z0-9_]+(?:\.[a-z0-9_]+)+\.[A-Z][A-Za-z0-9_$]*)\.[A-Za-z0-9_$<>]+\(/);
+              return m ? m[1] : null;
+            }).find(cls => cls && !isServerClass(cls));
+            addGrouped("L042", "loom-pin@" + (foreignPin || monFrame.trim().slice(0, 48)), lineNo,
+              "Virtual thread pinned its ForkJoinPool carrier platform thread via synchronized monitor or native frame" + (foreignPin ? (", attributed to " + foreignPin) : "") + ".",
+              pinSlice.slice(0, 4).map(s => s.trim()));
+          }
+
+          const hikariTimeout = line.match(/([A-Za-z0-9_.-]+)\s*-\s*Connection is not available,\s*request timed out after\s*(\d+(?:\.\d+)?)ms/i);
+          const hikariStats = line.match(/([A-Za-z0-9_.-]*Pool[A-Za-z0-9_.-]*)\s*-\s*PoolStats\s*\(total=(\d+),\s*active=(\d+),\s*idle=(\d+),\s*waiting=(\d+)\)/i);
+          if (hikariTimeout || (hikariStats && Number(hikariStats[3]) >= Number(hikariStats[2]) && Number(hikariStats[5]) > 0) || /\[SQLITE_BUSY|database (?:file )?is locked/i.test(line)) {
+            const onTick = /\[(Server thread|Region Scheduler Thread|TickRegionThread)/i.test(line);
+            const prefix = onTick ? "Synchronous tick-thread DB stall: " : "";
+            const detail = hikariTimeout
+              ? (prefix + "HikariCP pool '" + hikariTimeout[1] + "' exhausted, request timed out after " + hikariTimeout[2] + " ms" + (blame ? (", attributed to " + blame) : "") + ".")
+              : (hikariStats ? (prefix + "HikariCP pool '" + hikariStats[1] + "' saturated (active=" + hikariStats[3] + "/" + hikariStats[2] + ", waiting=" + hikariStats[5] + ").")
+                : (prefix + "SQLite database hit lock or WAL checkpoint contention" + (blame ? (", attributed to " + blame) : "") + "."));
+            addGrouped("L043", "db-starve@" + (hikariTimeout ? hikariTimeout[1] : (blame || "sqlite")), lineNo, detail, block.slice(0, 3));
+          }
+
+          const cgroupM = line.match(/nr_periods[\s:=]+(\d+).*?nr_throttled[\s:=]+(\d+)/i);
+          const psiM = line.match(/\b(some|full)\s+avg10=(\d+(?:\.\d+)?)/i);
+          const swapM = line.match(/VmSwap:\s*(\d+)\s*kB/i);
+          if ((cgroupM && Number(cgroupM[2]) > 0 && Number(cgroupM[2]) / Math.max(1, Number(cgroupM[1])) >= 0.05) ||
+              (psiM && parseFloat(psiM[2]) >= 10.0) ||
+              (swapM && Number(swapM[1]) >= 262144) ||
+              /\[always\]\s+madvise\s+never/i.test(line)) {
+            const detail = cgroupM
+              ? ("Container cgroup cpu.stat throttled " + cgroupM[2] + " of " + cgroupM[1] + " CFS periods (" + ((Number(cgroupM[2]) * 100) / Math.max(1, Number(cgroupM[1]))).toFixed(1) + "%).")
+              : (psiM ? ("Linux PSI (" + psiM[1] + " avg10=" + psiM[2] + "%) shows sustained host contention.")
+                : (swapM ? ("Host OS swapped " + Math.round(Number(swapM[1]) / 1024) + " MiB of JVM memory to disk.") : "Linux Transparent HugePages is set to [always], risking compaction stalls."));
+            addGrouped("L044", "host-pressure@" + lineNo, lineNo, detail, [line.trim()]);
+          }
+
           if (full.includes("Must use teleportAsync while in region threading") ||
               (full.includes("CraftScheduler") && /UnsupportedOperationException|region threading|Folia/i.test(full)) ||
               frames.some(f => f.includes(".TickThread.ensureTickThread")) ||
@@ -1117,6 +1181,41 @@
               continue;
             }
           }
+        }
+
+        // Temporal sliding-window (delta-t <= 5000 ms) causal timeline correlator (L045)
+        const timelineSignals = [];
+        for (let idx = 0; idx < lines.length; idx++) {
+          const rawL = lines[idx];
+          const tm = rawL.match(/(?:T|\b|\[)(\d{2}):(\d{2}):(\d{2})(?:[.,](\d{1,3}))?(?:\]|\b|Z)/);
+          if (!tm) continue;
+          const frac = tm[4] ? Number((tm[4] + "00").slice(0, 3)) : 0;
+          const tsMs = ((Number(tm[1]) * 3600 + Number(tm[2]) * 60 + Number(tm[3])) * 1000) + frac;
+          if (/nr_throttled|VmSwap:|\b(?:some|full)\s+avg10=/i.test(rawL)) {
+            timelineSignals.push({ line: idx + 1, tsMs, rank: 1, rule: "L044", label: "Host cgroup CPU throttle or OS stall", raw: rawL.trim() });
+          } else if (/To-space exhausted|Allocation Stall|Pause Full/i.test(rawL)) {
+            timelineSignals.push({ line: idx + 1, tsMs, rank: 2, rule: "L020", label: "Severe JVM GC stall", raw: rawL.trim() });
+          } else if (/Connection is not available,\s*request timed out|\[SQLITE_BUSY/i.test(rawL)) {
+            timelineSignals.push({ line: idx + 1, tsMs, rank: 3, rule: "L043", label: "Database pool or SQLite lock starvation", raw: rawL.trim() });
+          } else if (/ForkJoinPool.*Carrier|<== monitors:|VirtualThreadPinned/i.test(rawL)) {
+            timelineSignals.push({ line: idx + 1, tsMs, rank: 3, rule: "L042", label: "Virtual thread carrier pinning", raw: rawL.trim() });
+          } else if (/The server has stopped responding|DO NOT REPORT THIS TO FOLIA|has not responded for/i.test(rawL)) {
+            timelineSignals.push({ line: idx + 1, tsMs, rank: 6, rule: "L001", label: "Watchdog or Folia region stall", raw: rawL.trim() });
+          } else if (/Slow tick detected|Can't keep up!/i.test(rawL)) {
+            timelineSignals.push({ line: idx + 1, tsMs, rank: 5, rule: "L023", label: "Tick duration spike", raw: rawL.trim() });
+          }
+        }
+        for (const sym of timelineSignals.filter(s => s.rank >= 5)) {
+          const cands = timelineSignals.filter(c => c.rank < sym.rank && (sym.tsMs - c.tsMs) >= 0 && (sym.tsMs - c.tsMs) <= 5000);
+          if (!cands.length) continue;
+          cands.sort((a, b) => (a.rank - b.rank) || (a.tsMs - b.tsMs));
+          const root = cands[0];
+          const mids = cands.filter(c => c.rank > root.rank && c.rank < sym.rank);
+          const lead = sym.tsMs - root.tsMs;
+          const chain = ["[" + root.rule + "] " + root.label].concat(mids.slice(0, 2).map(m => "[" + m.rule + "] " + m.label)).concat(["[" + sym.rule + "] " + sym.label]).join(" -> ");
+          addGrouped("L045", "cascade@" + root.rule + "->" + sym.rule, sym.line,
+            "Causal cascade (delta-t=" + lead + " ms): " + chain + ".",
+            [root.raw, sym.raw]);
         }
 
         if (sparkTreeNodes.length > 0) {
@@ -1600,7 +1699,7 @@
         downloadBlob("serverdoctor-report.json", JSON.stringify({
           schema: 1,
           tool: "serverdoctor-web",
-          toolVersion: "0.9.0",
+          toolVersion: "1.0.0",
           facts: lastState.facts,
           findings: lastState.findings
         }, null, 2));
@@ -1615,7 +1714,7 @@
             tool: {
               driver: {
                 name: "ServerDoctor",
-                version: "0.9.0",
+                version: "1.0.0",
                 informationUri: "https://github.com/SalyyS1/serverdoctor",
                 rules: ruleIds.map(id => ({
                   id,

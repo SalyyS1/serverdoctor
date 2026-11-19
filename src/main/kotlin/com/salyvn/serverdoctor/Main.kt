@@ -8,6 +8,7 @@ import com.github.ajalt.clikt.parameters.options.versionOption
 import com.salyvn.serverdoctor.cli.ConfigCommand
 import com.salyvn.serverdoctor.cli.ContentionCommand
 import com.salyvn.serverdoctor.cli.CrashCommand
+import com.salyvn.serverdoctor.cli.DiagnoseIncidentCommand
 import com.salyvn.serverdoctor.cli.DiffCommand
 import com.salyvn.serverdoctor.cli.FlagsCommand
 import com.salyvn.serverdoctor.cli.GcCommand
@@ -52,6 +53,7 @@ fun main(args: Array<String>) = ServerDoctorCommand()
         DiffCommand(),
         GcCommand(),
         ContentionCommand(),
+        DiagnoseIncidentCommand(),
         McpCommand(),
         RulesCommand(),
     )
